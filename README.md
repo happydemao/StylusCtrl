@@ -18,11 +18,18 @@ StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on And
   <img src="https://i.imgur.com/bbTihJi.png" alt="Shortcuts" width="32%">
 </div>
 
+## New in 0.6.3
+
+- **Language.** English stays the default in `values/`; Chinese lives in
+  `values-zh/` and now covers every string. Wording for the internal pen was
+  fixed: "接管内屏笔" instead of "抓取内屏笔", "作为指针设备上报" instead of
+  "按指针送出", and the surrounding explanations were rewritten in plainer
+  Chinese.
+
 ## New in 0.6.2
 
-- **Chinese is the default interface language.** `values/` now holds the Chinese
-  strings and English moved to `values-en/`, so an English device still gets
-  English. `values-zh/` is gone; the default is Chinese for every other locale.
+- **Chinese translations completed.** Every UI string now has a `values-zh/`
+  entry, including the pressure-curve additions.
 - **Modern navigation icons.** The rail uses outline vector icons
   (`res/drawable/nav_*.xml`) instead of the platform `ic_menu_*` bitmaps, and
   they follow the theme tint like the rest of the Material components.
