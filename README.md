@@ -39,10 +39,13 @@ cannot apply it on an older daemon.
 ## Build
 
 ```sh
-tools/build.sh
+tools/build.sh          # or tools/build-zig.sh when zig is installed
 tools/pack-module.sh
 tools/build-apk.sh
 ```
+
+`tools/build-zig.sh` builds the two static daemons with `zig cc`, which also
+works on macOS where the musl.cc toolchains are Linux binaries.
 
 ## Installation
 
