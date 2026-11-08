@@ -112,8 +112,11 @@ features and the fit fix) was produced by an AI coding agent
 - Verified: APK builds and passes signature/resource/version checks, both module
   zips pass integrity checks, the daemons cross-compile for aarch64 and armv7,
   and the curve math plus the config round-trip are covered by local tests.
-- Not verified: the app was not run on a real device or emulator, and the daemon
-  unit tests were compiled but not executed on Linux/ARM hardware.
+- Tested on a Samsung Galaxy Tab S7 (SM-T870) running One UI 8.5: the module
+  flashes, the app installs, and the multi-knot curve, curve bank and
+  adjust-from-strokes flow work on the internal pen.
+- Still open: the daemon unit tests were compiled but not executed on Linux/ARM
+  hardware in CI, and no other device or ROM has been tried yet.
 
 ### 中文说明
 
@@ -123,7 +126,9 @@ features and the fit fix) was produced by an AI coding agent
 
 - 已验证：APK 构建与签名/资源/版本检查、两个模块 zip 完整性、aarch64/armv7
   守护进程交叉编译、曲线数学与配置读写的本地测试。
-- 未验证：尚未在真机或模拟器上运行，守护进程单元测试只编译未在 Linux/ARM 上执行。
+- 已实机测试：三星 Galaxy Tab S7（SM-T870，One UI 8.5），模块可刷入、App 可安装，
+  内屏笔的多控制点曲线、曲线库切换、按划线调整均正常。
+- 仍未覆盖：守护进程单元测试未在 Linux/ARM 上执行，其它机型与 ROM 尚未测试。
 
 ## License
 
