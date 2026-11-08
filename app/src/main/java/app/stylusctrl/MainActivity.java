@@ -59,6 +59,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.Collator;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -105,6 +106,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView curveReadout;
     private TextView curvePointsInfo;
     private ChipGroup curveBank;
+    private static final int UNDO_LIMIT = 20;
+    private final ArrayDeque<CurveUndo> curveUndo = new ArrayDeque<>();
     private TextView status;
     private NavigationRailView rail;
     private boolean editingInternal;
@@ -236,10 +239,18 @@ public class MainActivity extends AppCompatActivity {
         testPage.findViewById(R.id.clear_canvas).setOnClickListener(v -> canvas.clear());
 
         board.setListener(this::onBoardChanged);
-        curve.setListener(xy -> {
-            if (filling) return;
-            storeCurve(xy);
-            showCurveReadout(xy);
+        curve.setListener(new CurveGraph.Listener() {
+            @Override
+            public void onCurveChanged(float[] xy) {
+                if (filling) return;
+                storeCurve(xy);
+                showCurveReadout(xy);
+            }
+
+            @Override
+            public void onCurveBegin() {
+                if (!filling) pushUndo();
+            }
         });
         presets.setOnCheckedStateChangeListener((group, checkedIds) -> {
             if (filling || checkedIds.isEmpty()) return;
@@ -251,12 +262,24 @@ public class MainActivity extends AppCompatActivity {
         });
         pressurePage.findViewById(R.id.curve_reset).setOnClickListener(v -> resetCurve());
         pressurePage.findViewById(R.id.curve_add_point).setOnClickListener(v -> {
+            if (curve.pointCount() >= CurveGraph.MAX_POINTS) {
+                Snackbar.make(root, R.string.curve_full, Snackbar.LENGTH_SHORT).show();
+                return;
+            }
+            pushUndo();
             if (!curve.addPoint()) Snackbar.make(root, R.string.curve_full, Snackbar.LENGTH_SHORT).show();
         });
         pressurePage.findViewById(R.id.curve_remove_point).setOnClickListener(v -> {
+            if (curve.pointCount() <= 2) {
+                Snackbar.make(root, R.string.curve_last_one, Snackbar.LENGTH_SHORT).show();
+                return;
+            }
+            pushUndo();
             if (!curve.removePoint()) Snackbar.make(root, R.string.curve_last_one, Snackbar.LENGTH_SHORT).show();
         });
         pressurePage.findViewById(R.id.curve_add).setOnClickListener(v -> addCurve());
+        pressurePage.findViewById(R.id.curve_dup).setOnClickListener(v -> duplicateCurve());
+        pressurePage.findViewById(R.id.curve_undo).setOnClickListener(v -> undoCurve());
         pressurePage.findViewById(R.id.curve_rename).setOnClickListener(v -> renameCurve());
         pressurePage.findViewById(R.id.curve_delete).setOnClickListener(v -> deleteCurve());
         pressurePage.findViewById(R.id.curve_fit).setOnClickListener(v -> showFitDialog());
@@ -684,6 +707,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetCurve() {
+        pushUndo();
         Profile.Feel f = feel();
         f.deadzone = 0;
         f.ceiling = 1;
@@ -725,12 +749,71 @@ public class MainActivity extends AppCompatActivity {
             Snackbar.make(root, R.string.curve_bank_full, Snackbar.LENGTH_SHORT).show();
             return;
         }
+        Profile.Curve fresh = new Profile.Curve();
+        fresh.name = getString(R.string.curve_new_name, f.curves.size() + 1);
+        f.curves.add(fresh);
+        f.active = f.curves.size() - 1;
+        showCurve(f);
+        writeConfig(false);
+    }
+
+    private void duplicateCurve() {
+        Profile.Feel f = feel();
+        if (f.curves.size() >= Profile.MAX_CURVES) {
+            Snackbar.make(root, R.string.curve_bank_full, Snackbar.LENGTH_SHORT).show();
+            return;
+        }
         Profile.Curve copy = f.activeCurve().copy();
-        copy.name = getString(R.string.curve_new_name, f.curves.size() + 1);
+        String base = copy.name.isEmpty() ? getString(R.string.curve_new_name, f.active + 1) : copy.name;
+        copy.name = getString(R.string.curve_dup_name, base);
         f.curves.add(copy);
         f.active = f.curves.size() - 1;
         showCurve(f);
         writeConfig(false);
+    }
+
+    /** One curve state before an edit, for the undo button. */
+    private static final class CurveUndo {
+        final Profile.Feel feel;
+        final Profile.Curve curve;
+        final float[] pts;
+        final double deadzone;
+        final double ceiling;
+
+        CurveUndo(Profile.Feel feel, Profile.Curve curve, float[] pts, double deadzone, double ceiling) {
+            this.feel = feel;
+            this.curve = curve;
+            this.pts = pts;
+            this.deadzone = deadzone;
+            this.ceiling = ceiling;
+        }
+    }
+
+    private void pushUndo() {
+        Profile.Feel f = feel();
+        curveUndo.push(new CurveUndo(f, f.activeCurve(), f.points().clone(), f.deadzone, f.ceiling));
+        while (curveUndo.size() > UNDO_LIMIT) curveUndo.removeLast();
+    }
+
+    private void undoCurve() {
+        CurveUndo snap = null;
+        while (!curveUndo.isEmpty()) {
+            CurveUndo top = curveUndo.pop();
+            if (top.feel.curves.contains(top.curve)) {
+                snap = top;
+                break;
+            }
+        }
+        if (snap == null) {
+            Toast.makeText(this, R.string.curve_undo_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        snap.feel.deadzone = snap.deadzone;
+        snap.feel.ceiling = snap.ceiling;
+        snap.curve.pts = snap.pts.clone();
+        if (snap.feel == feel()) showCurve(snap.feel);
+        writeConfig(false);
+        Toast.makeText(this, R.string.curve_undone, Toast.LENGTH_SHORT).show();
     }
 
     private void renameCurve() {
@@ -772,19 +855,45 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** The CSP style panel: draw a few strokes, then spread pressure over the used range. */
+    /** CSP style: draw strokes, see the fitted target, then blend it in. Pen strokes only. */
     private void showFitDialog() {
         View view = getLayoutInflater().inflate(R.layout.dialog_curve_fit, null);
         TestCanvas canvas = view.findViewById(R.id.fit_canvas);
+        CurveGraph preview = view.findViewById(R.id.fit_preview);
         SeekBar bar = view.findViewById(R.id.fit_strength_bar);
         TextView value = view.findViewById(R.id.fit_value);
-        TextView count = view.findViewById(R.id.fit_samples);
-        final List<Float> samples = new ArrayList<>();
-        value.setText(bar.getProgress() + "%");
-        count.setText(getString(R.string.fit_samples, 0));
+        TextView status = view.findViewById(R.id.fit_status);
+
+        Profile.Feel f = feel();
+        final float[] cur = f.points().clone();
+        preview.setPoints(absolute(f, cur));
+        final List<float[]> strokes = new ArrayList<>();
+        final int[] sampleCount = {0};
+
+        Runnable refresh = () -> {
+            Profile.Feel now = feel();
+            float strength = bar.getProgress() / 100f;
+            value.setText(bar.getProgress() + "%");
+            status.setText(getString(R.string.fit_status, strokes.size(), sampleCount[0]));
+            if (strokes.isEmpty()) {
+                preview.setPreview(null);
+                return;
+            }
+            float[] next = fitKnots(cur, flatten(strokes), strength);
+            preview.setPreview(absolute(now, next));
+        };
+
+        canvas.setPenOnly(true);
+        canvas.setStrokeListener(pressures -> {
+            if (pressures.length < 6) return;
+            strokes.add(pressures);
+            sampleCount[0] += pressures.length;
+            refresh.run();
+        });
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                value.setText(progress + "%");
+                if (fromUser) refresh.run();
             }
 
             @Override
@@ -795,44 +904,63 @@ public class MainActivity extends AppCompatActivity {
             public void onStopTrackingTouch(SeekBar seekBar) {
             }
         });
-        canvas.setStrokeListener(pressures -> {
-            for (float p : pressures) samples.add(p);
-            count.setText(getString(R.string.fit_samples, samples.size()));
-        });
+        refresh.run();
+
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(R.string.fit_title)
                 .setView(view)
                 .setPositiveButton(R.string.fit_apply, null)
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.cancel, null)
                 .create();
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (samples.size() < 24) {
+            if (strokes.size() < 3 || sampleCount[0] < 24) {
                 Toast.makeText(this, R.string.fit_short, Toast.LENGTH_SHORT).show();
                 return;
             }
-            applyFit(samples, bar.getProgress() / 100f);
+            pushUndo();
+            float[] next = fitKnots(cur, flatten(strokes), bar.getProgress() / 100f);
+            Profile.Feel now = feel();
+            now.activeCurve().pts = next;
+            showCurve(now);
+            writeConfig(false);
             dialog.dismiss();
         }));
         dialog.show();
     }
 
-    private void applyFit(List<Float> samples, float strength) {
-        Profile.Feel f = feel();
-        float[] cur = f.points().clone();
-        // The canvas reports pressure after the daemon applied the current curve.
-        // Undo that curve first, or the new knots would be fitted in the wrong domain
-        // and every fit would stack another bias on top of the last one.
+    private static float[] flatten(List<float[]> strokes) {
+        int total = 0;
+        for (float[] one : strokes) total += one.length;
+        float[] out = new float[total];
+        int at = 0;
+        for (float[] one : strokes) {
+            System.arraycopy(one, 0, out, at, one.length);
+            at += one.length;
+        }
+        return out;
+    }
+
+    /**
+     * Output-domain samples to blended knots. The canvas reports pressure after the daemon
+     * applied the current curve, so invert that curve first, then fit in the raw domain.
+     */
+    private float[] fitKnots(float[] cur, float[] samples, float strength) {
         float[] table = inverseTable(cur, INVERSE_STEPS);
-        float[] sorted = new float[samples.size()];
-        for (int i = 0; i < sorted.length; i++) sorted[i] = invert(table, samples.get(i));
-        Arrays.sort(sorted);
-        float p10 = percentile(sorted, 0.10f);
-        float p25 = percentile(sorted, 0.25f);
-        float p50 = percentile(sorted, 0.50f);
-        float p75 = percentile(sorted, 0.75f);
-        float p90 = percentile(sorted, 0.90f);
+        float[] raw = new float[samples.length];
+        for (int i = 0; i < samples.length; i++) raw[i] = invert(table, samples[i]);
+        Arrays.sort(raw);
+        float p10 = percentile(raw, 0.10f);
+        float p25 = percentile(raw, 0.25f);
+        float p50 = percentile(raw, 0.50f);
+        float p75 = percentile(raw, 0.75f);
+        float p90 = percentile(raw, 0.90f);
         float[] target = cleanKnots(new float[] {0f, 0f, p10, 0.06f, p25, 0.25f, p50, 0.5f,
                 p75, 0.75f, p90, 0.94f, 1f, 1f});
+        return blend(cur, target, strength);
+    }
+
+    /** Mixes two knot sets on the union of their x positions, capped at MAX_KNOTS. */
+    private static float[] blend(float[] cur, float[] target, float strength) {
         float[] xs = merge(cur, target);
         int count = Math.min(Profile.MAX_KNOTS, xs.length);
         float[] next = new float[count * 2];
@@ -845,9 +973,7 @@ public class MainActivity extends AppCompatActivity {
         }
         next[0] = 0f;
         next[next.length - 2] = 1f;
-        f.activeCurve().pts = next;
-        showCurve(f);
-        writeConfig(false);
+        return next;
     }
 
     private static final int INVERSE_STEPS = 128;
@@ -1048,15 +1174,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private float[] absoluteCurve(Profile.Feel p) {
+        return absolute(p, p.points());
+    }
+
+    /** Curve-domain knots to the absolute x,y the graph draws, using the feel deadzones. */
+    private static float[] absolute(Profile.Feel p, float[] pts) {
         double lo = p.deadzone;
         double hi = p.ceiling;
         if (!(hi > lo)) hi = 1;
         double span = hi - lo;
-        float[] src = p.points();
-        float[] xy = new float[src.length];
-        for (int i = 0; i < src.length / 2; i++) {
-            xy[i * 2] = (float) (lo + src[i * 2] * span);
-            xy[i * 2 + 1] = src[i * 2 + 1];
+        float[] xy = new float[pts.length];
+        for (int i = 0; i < pts.length / 2; i++) {
+            xy[i * 2] = (float) (lo + pts[i * 2] * span);
+            xy[i * 2 + 1] = pts[i * 2 + 1];
         }
         return xy;
     }

@@ -2,30 +2,30 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/nav_map"
-        android:icon="@android:drawable/ic_menu_crop"
+        android:icon="@drawable/nav_map"
         android:title="@string/nav_map" />
     <item
         android:id="@+id/nav_curve"
-        android:icon="@android:drawable/ic_menu_sort_by_size"
+        android:icon="@drawable/nav_curve"
         android:title="@string/nav_pressure" />
     <item
         android:id="@+id/nav_keys"
-        android:icon="@android:drawable/ic_menu_edit"
+        android:icon="@drawable/nav_keys"
         android:title="@string/nav_buttons" />
     <item
         android:id="@+id/nav_test"
-        android:icon="@android:drawable/ic_menu_gallery"
+        android:icon="@drawable/nav_test"
         android:title="@string/nav_test" />
     <item
         android:id="@+id/nav_apps"
-        android:icon="@android:drawable/ic_menu_manage"
+        android:icon="@drawable/nav_apps"
         android:title="@string/nav_apps" />
     <item
         android:id="@+id/nav_internal"
-        android:icon="@android:drawable/ic_menu_slideshow"
+        android:icon="@drawable/nav_internal"
         android:title="@string/nav_internal" />
     <item
         android:id="@+id/nav_device"
-        android:icon="@android:drawable/ic_menu_info_details"
+        android:icon="@drawable/nav_device"
         android:title="@string/nav_device" />
 </menu>

@@ -28,6 +28,8 @@ public class TestCanvas extends View {
     private SampleListener listener;
     private StrokeListener strokeListener;
     private final ArrayList<Float> stroke = new ArrayList<>();
+    private static final int MAX_SAMPLES = 500;
+    private boolean penOnly;
     private Bitmap ink;
     private Canvas inkCanvas;
     private float lastX;
@@ -50,6 +52,11 @@ public class TestCanvas extends View {
 
     public void setStrokeListener(StrokeListener listener) {
         this.strokeListener = listener;
+    }
+
+    /** The fit dialog wants stylus strokes only: a finger has no pressure range to learn. */
+    public void setPenOnly(boolean penOnly) {
+        this.penOnly = penOnly;
     }
 
     public void clear() {
@@ -86,11 +93,14 @@ public class TestCanvas extends View {
     public boolean onTouchEvent(MotionEvent event) {
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
+            if (penOnly && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS) {
+                return false;
+            }
             getParent().requestDisallowInterceptTouchEvent(true);
             if (android.os.Build.VERSION.SDK_INT >= 31) requestUnbufferedDispatch(event);
             drawing = true;
             stroke.clear();
-            stroke.add(event.getPressure());
+            sample(event.getPressure());
             lastX = event.getX();
             lastY = event.getY();
             report(event);
@@ -101,10 +111,10 @@ public class TestCanvas extends View {
             int history = event.getHistorySize();
             for (int i = 0; i < history; i++) {
                 addSegment(event.getHistoricalX(i), event.getHistoricalY(i), event.getHistoricalPressure(i));
-                stroke.add(event.getHistoricalPressure(i));
+                sample(event.getHistoricalPressure(i));
             }
             addSegment(event.getX(), event.getY(), event.getPressure());
-            stroke.add(event.getPressure());
+            sample(event.getPressure());
             invalidate();
             report(event);
             return true;
@@ -112,7 +122,7 @@ public class TestCanvas extends View {
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             if (action == MotionEvent.ACTION_UP) {
                 addSegment(event.getX(), event.getY(), event.getPressure());
-                stroke.add(event.getPressure());
+                sample(event.getPressure());
                 finishStroke();
             }
             drawing = false;
@@ -135,6 +145,16 @@ public class TestCanvas extends View {
         inkCanvas.drawLine(lastX, lastY, x, y, paint);
         lastX = x;
         lastY = y;
+    }
+
+    /** Clamps to 0..1 and drops hover zeros, so percentiles are not dragged down by the pen landing. */
+    private void sample(float pressure) {
+        float p = pressure;
+        if (p < 0f) p = 0f;
+        if (p > 1f) p = 1f;
+        if (p <= 0f) return;
+        if (stroke.size() >= MAX_SAMPLES) return;
+        stroke.add(p);
     }
 
     private void finishStroke() {

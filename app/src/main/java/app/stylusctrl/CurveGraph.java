@@ -20,6 +20,10 @@ import com.google.android.material.color.MaterialColors;
 public class CurveGraph extends View {
     public interface Listener {
         void onCurveChanged(float[] xy);
+
+        /** Fires once per gesture, before the first change, so the caller can snapshot for undo. */
+        default void onCurveBegin() {
+        }
     }
 
     public static final int MAX_POINTS = 12;
@@ -195,11 +199,14 @@ public class CurveGraph extends View {
             getParent().requestDisallowInterceptTouchEvent(true);
             drag = hit(event.getX(), event.getY());
             if (drag < 0 && pts.length / 2 < MAX_POINTS) {
+                if (listener != null) listener.onCurveBegin();
                 int added = insert(event.getX(), event.getY());
                 if (added >= 0) {
                     drag = added;
                     notifyChanged();
                 }
+            } else if (drag >= 0 && listener != null) {
+                listener.onCurveBegin();
             }
             if (drag < 0) return false;
             move(event.getX(), event.getY());

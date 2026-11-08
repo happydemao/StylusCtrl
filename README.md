@@ -18,6 +18,26 @@ StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on And
   <img src="https://i.imgur.com/bbTihJi.png" alt="Shortcuts" width="32%">
 </div>
 
+## New in 0.6.2
+
+- **Chinese is the default interface language.** `values/` now holds the Chinese
+  strings and English moved to `values-en/`, so an English device still gets
+  English. `values-zh/` is gone; the default is Chinese for every other locale.
+- **Modern navigation icons.** The rail uses outline vector icons
+  (`res/drawable/nav_*.xml`) instead of the platform `ic_menu_*` bitmaps, and
+  they follow the theme tint like the rest of the Material components.
+- **Pressure fit, cleaned up.** The adjust-from-strokes dialog now samples pen
+  strokes only (finger and mouse are ignored), drops zero-pressure hover
+  samples, caps each stroke at 500 samples, and shows a live dashed preview of
+  the fitted target plus stroke and sample counts. Applying needs at least
+  3 strokes and 24 samples. The fit maths lives in `fitKnots`/`blend`, with the
+  inverse of the current curve still applied first.
+- **Undo and duplicate.** The Pressure page gained:
+  - **Undo**: restores the previous curve state after a drag, add/remove point,
+    reset or fit (20 steps deep, per pen).
+  - **Duplicate**: copies the active curve and names it "<name> copy". New curve
+    now starts from the default shape instead of copying the current one.
+
 ## New in 0.6.1 (this fork)
 
 ### Pressure curves with up to twelve knots
