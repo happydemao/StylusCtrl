@@ -5,6 +5,10 @@ Maintainer: alpha-liu-01
 
 StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on Android. The settings screen is a normal app. The Magisk module's `stylusctld` is what rewrites the input. The virtual device stays a pointer, and no IDC is installed.
 
+> **This repository is a fork** of [alpha-liu-01/StylusCtrl](https://github.com/alpha-liu-01/StylusCtrl).
+> It carries the 0.6.1 pressure-curve work: [release v0.6.1](https://github.com/happydemao/StylusCtrl/releases/tag/v0.6.1).
+> The changes were prepared with AI assistance, see [AI-assisted changes](#ai-assisted-changes).
+
 
 ## Screenshots
 
@@ -14,30 +18,68 @@ StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on And
   <img src="https://i.imgur.com/bbTihJi.png" alt="Shortcuts" width="32%">
 </div>
 
-## Pressure curves
+## New in 0.6.1 (this fork)
+
+### Pressure curves with up to twelve knots
+
+The curve is no longer a fixed four-point cubic. Every pen curve now holds
+between 2 and 12 knots:
+
+- Tap empty space in the graph to add a knot, drag to move it, drag an endpoint
+  to move that deadzone. Add point / Remove point work too.
+- App and daemon evaluate the same monotone cubic (PCHIP), so the preview is
+  what the pen actually does, with no overshoot between knots.
+- Old configs keep their feel: the legacy `pressure.curve` cubic is sampled into
+  five knots on load.
+- Config keys: `pressure.points` (flat x,y pairs), `pressure.deadzone`,
+  `pressure.ceiling`.
+
+### A curve bank per pen
+
+External and internal pens each keep a bank of named curves:
+
+- Chips above the graph switch the active curve; switching writes the config and
+  the daemon hot-reloads it, no restart.
+- Duplicate the current curve, rename it, or delete it. Up to 8 curves per pen.
+- The whole bank lives in `pressure.curves`, so config files and presets carry it.
+
+### Adjust pressure from strokes (CSP style)
+
+Pressure page → **Adjust from strokes**:
+
+- Draw three to five strokes at different weights on the dialog canvas.
+- Sampled pressure percentiles (10/25/50/75/90) are spread over the full output
+  range, giving more usable travel where you actually press.
+- The canvas sees pressure **after** the daemon applied the current curve, so
+  each sample is first run back through that curve (table inverse, a dipping
+  curve is folded to its running maximum) and fitted in the raw domain.
+  Repeated fits converge instead of stacking a bias per run.
+- Strength blends the fitted curve with the current one instead of replacing it.
+  The result is ordinary knots, editable by hand afterwards.
+
+### Compatibility
+
+- The new daemon reads `pressure.points` and still accepts the old
+  `pressure.curve` cubic, so upgrading the module keeps existing configs valid.
+- The new app writes `points`; an old daemon will ignore them. App and module
+  should be flashed together.
+- The config read limit was raised from 64 KiB to 256 KiB because the curve bank
+  now lives inside `config.json`.
+
+## Pressure curves (technical notes)
 
 Each pen (external and internal) keeps a bank of named curves. The Pressure page
 switches between them with the chips above the graph; the active curve is what
 the daemon applies. Curves are saved inside `pressure.curves`, so a config file
 carries the whole bank.
 
-The editor accepts up to twelve knots. Tap empty space in the graph to add one,
-drag to move it, or use Add point / Remove point. Knots are evaluated with a
-monotone cubic (PCHIP) in both the app and `stylusctld`, so the preview is what
-the pen does. Old `pressure.curve` cubics are sampled into five knots on load.
+Knots are evaluated with a monotone cubic (PCHIP) in both the app and
+`stylusctld`. Old `pressure.curve` cubics are sampled into five knots on load.
 
-Adjust from strokes is the CSP-style helper: draw a few strokes at different
-weights, and the sampled pressure percentiles (10/25/50/75/90) are spread over
-the output range. The canvas sees pressure after the daemon applied the current
-curve, so each sample is first run back through that curve (table inverse, dip
-folded to its running maximum) and fitted in the raw domain. Repeated fits then
-converge instead of stacking a bias per run. Strength blends the result with the
+Adjust from strokes samples pressure through the current curve, converts it back
+to raw pressure, then fits the percentiles. Strength blends the result with the
 current curve instead of replacing it. The fitted curve becomes normal knots, so
 it can be edited by hand afterwards.
-
-Note: `pressure.points` is read by the daemon in this release. A config that
-only has `points` needs the matching `stylusctrl-*.zip` module; the app alone
-cannot apply it on an older daemon.
 
 ## Build
 
@@ -53,6 +95,35 @@ works on macOS where the musl.cc toolchains are Linux binaries.
 ## Installation
 
 `tools/pack-module.sh` writes `out/stylusctrl-arm64.zip` and `out/stylusctrl-arm.zip`. Flash the one that matches the device in Magisk and reboot. `tools/build-apk.sh` writes `out/stylusctrl-arm64.apk` and `out/stylusctrl-arm.apk`. The app has no native code, so either apk installs on either device. The zip is the one that has to match: it carries `stylusctld`.
+
+A ready-made build of this fork is attached to
+[release v0.6.1](https://github.com/happydemao/StylusCtrl/releases/tag/v0.6.1):
+APKs, both module zips, the source archive and `SHA256SUMS`.
+
+## AI-assisted changes
+
+The work in this fork (commits after `7fcaa06`, the 0.6.1 pressure-curve
+features and the fit fix) was produced by an AI coding agent
+(DeepSeek Harness) operating on behalf of [@happydemao](https://github.com/happydemao).
+
+- Upstream code and MIT licensing are unchanged; only the pressure curve stack
+  (app UI, `Profile` config model, `stylusctld` curve evaluation) and the build
+  scripts were touched.
+- Verified: APK builds and passes signature/resource/version checks, both module
+  zips pass integrity checks, the daemons cross-compile for aarch64 and armv7,
+  and the curve math plus the config round-trip are covered by local tests.
+- Not verified: the app was not run on a real device or emulator, and the daemon
+  unit tests were compiled but not executed on Linux/ARM hardware.
+
+### 中文说明
+
+本仓库是上游的 fork，0.6.1 的多控制点压感曲线、按划线调整笔压、多曲线切换，
+以及「采样先反解当前曲线」的修复，均由 AI（DeepSeek Harness）在
+[@happydemao](https://github.com/happydemao) 的委托下完成。
+
+- 已验证：APK 构建与签名/资源/版本检查、两个模块 zip 完整性、aarch64/armv7
+  守护进程交叉编译、曲线数学与配置读写的本地测试。
+- 未验证：尚未在真机或模拟器上运行，守护进程单元测试只编译未在 Linux/ARM 上执行。
 
 ## License
 
