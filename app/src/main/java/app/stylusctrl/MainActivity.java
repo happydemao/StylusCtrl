@@ -826,11 +826,11 @@ public class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.curve_rename_title)
                 .setView(input)
-                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                .setPositiveButton(R.string.ok, (dialog, which) -> {
                     current.name = input.getText().toString().trim();
                     refreshCurveChips();
                 })
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
@@ -850,7 +850,7 @@ public class MainActivity extends AppCompatActivity {
                     showCurve(f);
                     writeConfig(false);
                 })
-                .setNegativeButton(android.R.string.cancel, null)
+                .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 

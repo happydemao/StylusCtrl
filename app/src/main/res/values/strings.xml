@@ -150,4 +150,5 @@
     <string name="curve_undo_empty">没有可撤销的调整。</string>
     <string name="curve_undone">已撤销。</string>
     <string name="fit_status">%1$d 笔 · %2$d 点</string>
+    <string name="ok">确定</string>
 </resources>

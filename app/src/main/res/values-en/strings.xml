@@ -150,4 +150,5 @@
     <string name="curve_undo_empty">Nothing to undo.</string>
     <string name="curve_undone">Undone.</string>
     <string name="fit_status">%1$d strokes · %2$d samples</string>
+    <string name="ok">OK</string>
 </resources>
