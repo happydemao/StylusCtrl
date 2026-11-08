@@ -27,8 +27,10 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -46,6 +48,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.navigationrail.NavigationRailView;
@@ -57,6 +60,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.Collator;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -98,6 +103,8 @@ public class MainActivity extends AppCompatActivity {
     private ChipGroup rotations;
     private CurveGraph curve;
     private TextView curveReadout;
+    private TextView curvePointsInfo;
+    private ChipGroup curveBank;
     private TextView status;
     private NavigationRailView rail;
     private boolean editingInternal;
@@ -178,6 +185,8 @@ public class MainActivity extends AppCompatActivity {
         rotations = mappingPage.findViewById(R.id.tablet_rotation);
         curve = pressurePage.findViewById(R.id.curve);
         curveReadout = pressurePage.findViewById(R.id.curve_readout);
+        curvePointsInfo = pressurePage.findViewById(R.id.curve_points_info);
+        curveBank = pressurePage.findViewById(R.id.curve_bank);
         status = devicePage.findViewById(R.id.status);
         devicePage.findViewById(R.id.load_config).setOnClickListener(v ->
                 openConfig.launch(new String[] {"application/json", "text/plain", "*/*"}));
@@ -241,6 +250,16 @@ public class MainActivity extends AppCompatActivity {
             applyRotation(checkedIds.get(0));
         });
         pressurePage.findViewById(R.id.curve_reset).setOnClickListener(v -> resetCurve());
+        pressurePage.findViewById(R.id.curve_add_point).setOnClickListener(v -> {
+            if (!curve.addPoint()) Snackbar.make(root, R.string.curve_full, Snackbar.LENGTH_SHORT).show();
+        });
+        pressurePage.findViewById(R.id.curve_remove_point).setOnClickListener(v -> {
+            if (!curve.removePoint()) Snackbar.make(root, R.string.curve_last_one, Snackbar.LENGTH_SHORT).show();
+        });
+        pressurePage.findViewById(R.id.curve_add).setOnClickListener(v -> addCurve());
+        pressurePage.findViewById(R.id.curve_rename).setOnClickListener(v -> renameCurve());
+        pressurePage.findViewById(R.id.curve_delete).setOnClickListener(v -> deleteCurve());
+        pressurePage.findViewById(R.id.curve_fit).setOnClickListener(v -> showFitDialog());
         wireButtons();
         wireDeviceChoice();
         wireInternal();
@@ -518,8 +537,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showFeel(Profile.Feel f) {
-        curve.setPoints(absoluteCurve(f));
-        showCurveReadout(curve.getPoints());
+        showCurve(f);
         MaterialButtonToggleGroup stylus = buttonsPage.findViewById(R.id.stylus_action);
         int stylusId = R.id.stylus_pass;
         if ("shortcut".equals(f.stylusAction)) stylusId = R.id.stylus_shortcut;
@@ -669,12 +687,203 @@ public class MainActivity extends AppCompatActivity {
         Profile.Feel f = feel();
         f.deadzone = 0;
         f.ceiling = 1;
-        f.curve = new double[] {0, 0, 0.4, 0.7, 0.4, 0.7, 1, 1};
-        float[] xy = absoluteCurve(f);
-        filling = true;
-        curve.setPoints(xy);
-        filling = false;
-        showCurveReadout(xy);
+        f.activeCurve().pts = Profile.DEFAULT_CURVE.clone();
+        showCurve(f);
+    }
+
+    /** Rebuilds the graph, the readout and the curve chips from one feel. */
+    private void showCurve(Profile.Feel f) {
+        curve.setPreview(null);
+        curve.setPoints(absoluteCurve(f));
+        showCurveReadout(curve.getPoints());
+        refreshCurveChips();
+    }
+
+    private void refreshCurveChips() {
+        Profile.Feel f = feel();
+        curveBank.removeAllViews();
+        for (int i = 0; i < f.curves.size(); i++) {
+            int index = i;
+            Profile.Curve item = f.curves.get(i);
+            Chip chip = new Chip(this);
+            chip.setText(item.name.isEmpty() ? getString(R.string.curve_new_name, i + 1) : item.name);
+            chip.setCheckable(true);
+            chip.setChecked(i == f.active);
+            chip.setOnClickListener(v -> {
+                if (filling) return;
+                f.active = index;
+                showCurve(f);
+            });
+            curveBank.addView(chip);
+        }
+    }
+
+    private void addCurve() {
+        Profile.Feel f = feel();
+        Profile.Curve copy = f.activeCurve().copy();
+        copy.name = getString(R.string.curve_new_name, f.curves.size() + 1);
+        f.curves.add(copy);
+        f.active = f.curves.size() - 1;
+        showCurve(f);
+    }
+
+    private void renameCurve() {
+        Profile.Feel f = feel();
+        Profile.Curve current = f.activeCurve();
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(current.name);
+        input.setSelection(input.getText().length());
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.curve_rename_title)
+                .setView(input)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    current.name = input.getText().toString().trim();
+                    refreshCurveChips();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void deleteCurve() {
+        Profile.Feel f = feel();
+        if (f.curves.size() <= 1) {
+            Snackbar.make(root, R.string.curve_last_one, Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        Profile.Curve current = f.activeCurve();
+        String name = current.name.isEmpty() ? getString(R.string.curve_new_name, f.active + 1) : current.name;
+        new AlertDialog.Builder(this)
+                .setMessage(getString(R.string.curve_delete_confirm, name))
+                .setPositiveButton(R.string.dialog_delete, (dialog, which) -> {
+                    f.curves.remove(f.active);
+                    if (f.active >= f.curves.size()) f.active = f.curves.size() - 1;
+                    showCurve(f);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** The CSP style panel: draw a few strokes, then spread pressure over the used range. */
+    private void showFitDialog() {
+        View view = getLayoutInflater().inflate(R.layout.dialog_curve_fit, null);
+        TestCanvas canvas = view.findViewById(R.id.fit_canvas);
+        SeekBar bar = view.findViewById(R.id.fit_strength_bar);
+        TextView value = view.findViewById(R.id.fit_value);
+        TextView count = view.findViewById(R.id.fit_samples);
+        final List<Float> samples = new ArrayList<>();
+        value.setText(bar.getProgress() + "%");
+        count.setText(getString(R.string.fit_samples, 0));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                value.setText(progress + "%");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        canvas.setStrokeListener(pressures -> {
+            for (float p : pressures) samples.add(p);
+            count.setText(getString(R.string.fit_samples, samples.size()));
+        });
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.fit_title)
+                .setView(view)
+                .setPositiveButton(R.string.fit_apply, null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (samples.size() < 24) {
+                Toast.makeText(this, R.string.fit_short, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            applyFit(samples, bar.getProgress() / 100f);
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private void applyFit(List<Float> samples, float strength) {
+        float[] sorted = new float[samples.size()];
+        for (int i = 0; i < sorted.length; i++) sorted[i] = samples.get(i);
+        Arrays.sort(sorted);
+        float p10 = percentile(sorted, 0.10f);
+        float p25 = percentile(sorted, 0.25f);
+        float p50 = percentile(sorted, 0.50f);
+        float p75 = percentile(sorted, 0.75f);
+        float p90 = percentile(sorted, 0.90f);
+        float[] target = cleanKnots(new float[] {0f, 0f, p10, 0.06f, p25, 0.25f, p50, 0.5f,
+                p75, 0.75f, p90, 0.94f, 1f, 1f});
+        Profile.Feel f = feel();
+        float[] cur = f.points().clone();
+        float[] xs = merge(cur, target);
+        int count = Math.min(Profile.MAX_KNOTS, xs.length);
+        float[] next = new float[count * 2];
+        for (int i = 0; i < count; i++) {
+            float x = count == xs.length ? xs[i] : i / (float) (count - 1);
+            float a = CurveGraph.eval(cur, cur.length / 2, x);
+            float b = CurveGraph.eval(target, target.length / 2, x);
+            next[i * 2] = x;
+            next[i * 2 + 1] = Math.max(0f, Math.min(1f, a + (b - a) * strength));
+        }
+        next[0] = 0f;
+        next[next.length - 2] = 1f;
+        f.activeCurve().pts = next;
+        showCurve(f);
+    }
+
+    private static float percentile(float[] sorted, float q) {
+        if (sorted.length == 0) return 0f;
+        float pos = q * (sorted.length - 1);
+        int lo = (int) Math.floor(pos);
+        int hi = Math.min(sorted.length - 1, lo + 1);
+        float t = pos - lo;
+        return sorted[lo] + (sorted[hi] - sorted[lo]) * t;
+    }
+
+    /** Keeps the fitted knots ordered, at least 2 apart, with fixed endpoints. */
+    private static float[] cleanKnots(float[] raw) {
+        int n = raw.length / 2;
+        float[] tmp = new float[raw.length];
+        int m = 0;
+        for (int i = 0; i < n; i++) {
+            float x = Math.max(0f, Math.min(1f, raw[i * 2]));
+            float y = Math.max(0f, Math.min(1f, raw[i * 2 + 1]));
+            if (i == 0) x = 0f;
+            if (i == n - 1) x = 1f;
+            if (i > 0 && i < n - 1 && x <= 0.02f) continue;
+            if (i > 0 && i < n - 1 && x >= 0.98f) continue;
+            if (m > 0 && x - tmp[(m - 1) * 2] < 0.02f) continue;
+            tmp[m * 2] = x;
+            tmp[m * 2 + 1] = y;
+            m++;
+        }
+        if (m < 2) return Profile.DEFAULT_CURVE.clone();
+        float[] out = new float[m * 2];
+        System.arraycopy(tmp, 0, out, 0, m * 2);
+        out[0] = 0f;
+        out[out.length - 2] = 1f;
+        return out;
+    }
+
+    private static float[] merge(float[] a, float[] b) {
+        ArrayList<Float> all = new ArrayList<>();
+        for (int i = 0; i < a.length; i += 2) all.add(a[i]);
+        for (int i = 0; i < b.length; i += 2) all.add(b[i]);
+        Collections.sort(all);
+        ArrayList<Float> out = new ArrayList<>();
+        for (float x : all) {
+            if (out.isEmpty() || x - out.get(out.size() - 1) > 0.001f) out.add(x);
+        }
+        float[] xs = new float[out.size()];
+        for (int i = 0; i < xs.length; i++) xs[i] = out.get(i);
+        return xs;
     }
 
     private void onBoardChanged(int[] tablet, float[] screen) {
@@ -769,21 +978,28 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void storeCurve(float[] xy) {
+        int n = xy.length / 2;
         float lo = xy[0];
-        float hi = xy[6];
+        float hi = xy[(n - 1) * 2];
         if (hi - lo < 0.02f) hi = Math.min(1f, lo + 0.02f);
         Profile.Feel f = feel();
         f.deadzone = lo;
         f.ceiling = hi;
         double span = hi - lo;
-        for (int i = 0; i < 4; i++) {
-            f.curve[i * 2] = (xy[i * 2] - lo) / span;
-            f.curve[i * 2 + 1] = xy[i * 2 + 1];
+        float[] norm = new float[xy.length];
+        for (int i = 0; i < n; i++) {
+            norm[i * 2] = (float) ((xy[i * 2] - lo) / span);
+            norm[i * 2 + 1] = xy[i * 2 + 1];
         }
+        norm[0] = 0f;
+        norm[(n - 1) * 2] = 1f;
+        f.activeCurve().pts = norm;
     }
 
     private void showCurveReadout(float[] xy) {
-        curveReadout.setText(getString(R.string.curve_readout, xy[0] * 100f, xy[6] * 100f));
+        int n = xy.length / 2;
+        curveReadout.setText(getString(R.string.curve_readout, xy[0] * 100f, xy[(n - 1) * 2] * 100f));
+        if (curvePointsInfo != null) curvePointsInfo.setText(getString(R.string.curve_points, n));
     }
 
     private float[] absoluteCurve(Profile.Feel p) {
@@ -791,10 +1007,11 @@ public class MainActivity extends AppCompatActivity {
         double hi = p.ceiling;
         if (!(hi > lo)) hi = 1;
         double span = hi - lo;
-        float[] xy = new float[8];
-        for (int i = 0; i < 4; i++) {
-            xy[i * 2] = (float) (lo + p.curve[i * 2] * span);
-            xy[i * 2 + 1] = (float) p.curve[i * 2 + 1];
+        float[] src = p.points();
+        float[] xy = new float[src.length];
+        for (int i = 0; i < src.length / 2; i++) {
+            xy[i * 2] = (float) (lo + src[i * 2] * span);
+            xy[i * 2 + 1] = src[i * 2 + 1];
         }
         return xy;
     }

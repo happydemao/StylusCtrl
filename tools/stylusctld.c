@@ -9,6 +9,7 @@
 #include <linux/hidraw.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
+#include <math.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/inotify.h>
@@ -121,6 +122,7 @@ enum {
 };
 
 #define MAX_NAMED 8
+#define MAX_PTS 12
 #define MAX_DEV_RULES 4
 #define MAX_APP_RULES 8
 
@@ -136,6 +138,9 @@ struct feel_slot {
     int rotation;
     double curve[8];
     int curve_n;
+    /* Normalized knots, x,y pairs, up to MAX_PTS points. Wins over curve when set. */
+    double pts[MAX_PTS * 2];
+    int pts_n;
     double deadzone;
     double ceiling;
     int stylus_action;
@@ -148,6 +153,8 @@ struct feel_slot {
     int in_ready;
     double in_curve[8];
     int in_curve_n;
+    double in_pts[MAX_PTS * 2];
+    int in_pts_n;
     double in_deadzone;
     double in_ceiling;
     int in_stylus_action;
@@ -199,6 +206,9 @@ struct profile {
     unsigned product;
     double curve[8];
     int curve_n;
+    /* Normalized knots, x,y pairs, up to MAX_PTS points. Wins over curve when set. */
+    double pts[MAX_PTS * 2];
+    int pts_n;
     double deadzone;
     double ceiling;
     int has_screen;
@@ -217,6 +227,8 @@ struct profile {
     int in_ready;
     double in_curve[8];
     int in_curve_n;
+    double in_pts[MAX_PTS * 2];
+    int in_pts_n;
     double in_deadzone;
     double in_ceiling;
     int in_stylus_action;
@@ -749,6 +761,8 @@ static void view_for_pen(const struct profile *src, int direct, struct profile *
     if (!direct || !src->in_ready) return;
     memcpy(dst->curve, src->in_curve, sizeof dst->curve);
     dst->curve_n = src->in_curve_n;
+    memcpy(dst->pts, src->in_pts, sizeof dst->pts);
+    dst->pts_n = src->in_pts_n;
     dst->deadzone = src->in_deadzone;
     dst->ceiling = src->in_ceiling;
     dst->stylus_action = src->in_stylus_action;
@@ -770,6 +784,8 @@ static void slot_from_profile(struct feel_slot *s, const struct profile *p) {
     s->rotation = p->rotation;
     memcpy(s->curve, p->curve, sizeof s->curve);
     s->curve_n = p->curve_n;
+    memcpy(s->pts, p->pts, sizeof s->pts);
+    s->pts_n = p->pts_n;
     s->deadzone = p->deadzone;
     s->ceiling = p->ceiling;
     s->stylus_action = p->stylus_action;
@@ -782,6 +798,8 @@ static void slot_from_profile(struct feel_slot *s, const struct profile *p) {
     s->in_ready = p->in_ready;
     memcpy(s->in_curve, p->in_curve, sizeof s->in_curve);
     s->in_curve_n = p->in_curve_n;
+    memcpy(s->in_pts, p->in_pts, sizeof s->in_pts);
+    s->in_pts_n = p->in_pts_n;
     s->in_deadzone = p->in_deadzone;
     s->in_ceiling = p->in_ceiling;
     s->in_stylus_action = p->in_stylus_action;
@@ -803,6 +821,8 @@ static void profile_from_slot(struct profile *p, const struct feel_slot *s) {
     p->rotation = s->rotation;
     memcpy(p->curve, s->curve, sizeof p->curve);
     p->curve_n = s->curve_n;
+    memcpy(p->pts, s->pts, sizeof p->pts);
+    p->pts_n = s->pts_n;
     p->deadzone = s->deadzone;
     p->ceiling = s->ceiling;
     p->stylus_action = s->stylus_action;
@@ -815,6 +835,8 @@ static void profile_from_slot(struct profile *p, const struct feel_slot *s) {
     p->in_ready = s->in_ready;
     memcpy(p->in_curve, s->in_curve, sizeof p->in_curve);
     p->in_curve_n = s->in_curve_n;
+    memcpy(p->in_pts, s->in_pts, sizeof p->in_pts);
+    p->in_pts_n = s->in_pts_n;
     p->in_deadzone = s->in_deadzone;
     p->in_ceiling = s->in_ceiling;
     p->in_stylus_action = s->in_stylus_action;
@@ -996,6 +1018,12 @@ static int apply_string(const char *path, const char *s, struct profile *prof) {
     return 0;
 }
 
+static void store_points(double *pts, int *pts_n, const double *nums, int n) {
+    int count = n / 2;
+    for (int i = 0; i < n; i++) pts[i] = nums[i];
+    *pts_n = count;
+}
+
 static void store_curve(double *curve, int *curve_n, const double *nums, int n) {
     if (n == 8) {
         for (int i = 0; i < 8; i++) curve[i] = nums[i];
@@ -1022,6 +1050,14 @@ static int assign_array(const char *path, const double *nums, int n, const int *
             prof->in_ready = 1;
             store_curve(prof->in_curve, &prof->in_curve_n, nums, n);
         } else store_curve(prof->curve, &prof->curve_n, nums, n);
+        return 0;
+    }
+    if (!strcmp(local, "pressure.points")) {
+        if (n < 4 || n > MAX_PTS * 2 || (n % 2)) return -1;
+        if (inn) {
+            prof->in_ready = 1;
+            store_points(prof->in_pts, &prof->in_pts_n, nums, n);
+        } else store_points(prof->pts, &prof->pts_n, nums, n);
         return 0;
     }
     if (!strcmp(path, "mapping.rect")) {
@@ -1076,9 +1112,10 @@ static int parse_array(const char **pp, const char *path, struct profile *prof) 
     const char *local;
     feel_path(path, &local);
     int is_curve = !strcmp(local, "pressure.curve");
+    int is_points = !strcmp(local, "pressure.points");
     int is_rect = !strcmp(local, "mapping.rect") || !strcmp(local, "mapping.screen");
     int is_keys = !strcmp(local, "buttons.BTN_STYLUS.keys") || !strcmp(local, "buttons.BTN_TOOL_RUBBER.keys");
-    double nums[8];
+    double nums[MAX_PTS * 2];
     int codes[8];
     int n = 0;
     int ncodes = 0;
@@ -1095,6 +1132,13 @@ static int parse_array(const char **pp, const char *path, struct profile *prof) 
             } else if (is_curve || is_rect) {
                 char *end = NULL;
                 if (n >= 8) return -1;
+                nums[n] = strtod(p, &end);
+                if (end == p) return -1;
+                p = end;
+                n++;
+            } else if (is_points) {
+                char *end = NULL;
+                if (n >= MAX_PTS * 2) return -1;
                 nums[n] = strtod(p, &end);
                 if (end == p) return -1;
                 p = end;
@@ -1483,6 +1527,55 @@ static double bezier(double s, double p0, double p1, double p2, double p3) {
     return t * t * t * p0 + 3 * t * t * s * p1 + 3 * t * s * s * p2 + s * s * s * p3;
 }
 
+/* Monotone cubic (same slopes the app draws) over normalized knots. x is the
+   input pressure, y the output. No overshoot, so a relaxed drag cannot make
+   the pen dip. */
+static double curve_points(const double *pts, int n, double x) {
+    double m[MAX_PTS];
+    double d[MAX_PTS];
+    int i;
+    if (n < 2) return x;
+    if (x <= pts[0]) return pts[1];
+    if (x >= pts[(n - 1) * 2]) return pts[(n - 1) * 2 + 1];
+    for (i = 0; i < n - 1; i++) {
+        double h = pts[(i + 1) * 2] - pts[i * 2];
+        if (h <= 0) h = 1e-6;
+        d[i] = (pts[(i + 1) * 2 + 1] - pts[i * 2 + 1]) / h;
+    }
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+    for (i = 1; i < n - 1; i++) m[i] = (d[i - 1] * d[i] <= 0) ? 0 : (d[i - 1] + d[i]) / 2;
+    for (i = 0; i < n - 1; i++) {
+        if (d[i] == 0) {
+            m[i] = 0;
+            m[i + 1] = 0;
+        } else {
+            double a = m[i] / d[i];
+            double b = m[i + 1] / d[i];
+            double sq = a * a + b * b;
+            if (sq > 9) {
+                double k = 3 / sqrt(sq);
+                m[i] = k * a * d[i];
+                m[i + 1] = k * b * d[i];
+            }
+        }
+    }
+    i = 0;
+    while (i < n - 2 && x > pts[(i + 1) * 2]) i++;
+    double x0 = pts[i * 2];
+    double x1 = pts[(i + 1) * 2];
+    double h = x1 - x0;
+    if (h <= 0) return pts[(i + 1) * 2 + 1];
+    double u = (x - x0) / h;
+    double u2 = u * u;
+    double u3 = u2 * u;
+    double y = (2 * u3 - 3 * u2 + 1) * pts[i * 2 + 1] + (u3 - 2 * u2 + u) * h * m[i]
+             + (-2 * u3 + 3 * u2) * pts[(i + 1) * 2 + 1] + (u3 - u2) * h * m[i + 1];
+    if (y < 0) y = 0;
+    if (y > 1) y = 1;
+    return y;
+}
+
 static int pressure_out(const struct profile *p, int raw, int pmin, int pmax) {
     if (!p || pmax <= pmin) return raw;
     double span = (double)(pmax - pmin);
@@ -1494,24 +1587,28 @@ static int pressure_out(const struct profile *p, int raw, int pmin, int pmax) {
     if (lo > 1) lo = 1;
     double hi = p->ceiling;
     if (!(hi > lo && hi <= 1.0)) hi = 1.0;
-    if (p->curve_n == 0 && lo <= 0 && hi >= 1.0) return raw;
-    double y0 = p->curve_n ? p->curve[1] : 0;
-    double y1 = p->curve_n ? p->curve[7] : 1;
+    int has_pts = p->pts_n >= 2;
+    if (p->curve_n == 0 && !has_pts && lo <= 0 && hi >= 1.0) return raw;
+    double y0 = has_pts ? p->pts[1] : (p->curve_n ? p->curve[1] : 0);
+    double y1 = has_pts ? p->pts[(p->pts_n - 1) * 2 + 1] : (p->curve_n ? p->curve[7] : 1);
     double y;
     if (t <= lo || hi <= lo) y = y0;
     else if (t >= hi) y = y1;
-    else if (p->curve_n == 0) y = (t - lo) / (hi - lo);
+    else if (!has_pts && p->curve_n == 0) y = (t - lo) / (hi - lo);
     else {
         t = (t - lo) / (hi - lo);
-        double a = 0;
-        double b = 1;
-        for (int i = 0; i < 24; i++) {
-            double mid = (a + b) / 2.0;
-            double x = bezier(mid, p->curve[0], p->curve[2], p->curve[4], p->curve[6]);
-            if (x < t) a = mid;
-            else b = mid;
+        if (has_pts) y = curve_points(p->pts, p->pts_n, t);
+        else {
+            double a = 0;
+            double b = 1;
+            for (int i = 0; i < 24; i++) {
+                double mid = (a + b) / 2.0;
+                double x = bezier(mid, p->curve[0], p->curve[2], p->curve[4], p->curve[6]);
+                if (x < t) a = mid;
+                else b = mid;
+            }
+            y = bezier((a + b) / 2.0, p->curve[1], p->curve[3], p->curve[5], p->curve[7]);
         }
-        y = bezier((a + b) / 2.0, p->curve[1], p->curve[3], p->curve[5], p->curve[7]);
     }
     if (y < 0) y = 0;
     if (y > 1) y = 1;
@@ -2014,6 +2111,12 @@ static void test_parse_roadmap(void) {
     expect("vendor", (int)p.vendor, 0x0531);
     expect("product", (int)p.product, 0x0104);
     expect("curve n", p.curve_n, 8);
+    expect("points parse", parse_config("{\"pressure\":{\"points\":[0,0,0.25,0.4,0.5,0.6,0.75,0.8,1,1]}}", &p), 0);
+    expect("points n", p.pts_n, 5);
+    expect("points y", (int)(p.pts[3] * 10), 4);
+    expect("points out", pressure_out(&p, 50, 0, 100), 60);
+    expect("points low", pressure_out(&p, 10, 0, 100) < 40, 1);
+    expect("points high", pressure_out(&p, 90, 0, 100) > 80, 1);
     expect("curve mid x", (int)(p.curve[2] * 10), 4);
     expect("curve dup", p.curve[2] == p.curve[4] && p.curve[3] == p.curve[5], 1);
     expect("stylus act", p.stylus_action, STYLUS_SHORTCUT);
@@ -2523,6 +2626,8 @@ struct pen {
     int latch_valid;
     double latch_curve[8];
     int latch_curve_n;
+    double latch_pts[MAX_PTS * 2];
+    int latch_pts_n;
     double latch_deadzone;
     double latch_ceiling;
     int latch_stylus_action;
@@ -2902,7 +3007,7 @@ static void log_profile(void) {
     if (cfg.in_match) log_msg("internal match loaded");
     if (cfg.in_mount) log_msg("internal orientation %d", cfg.in_mount * 90);
     if (cfg.in_pointer) log_msg("internal pointer");
-    if (cfg.curve_n) log_msg("pressure curve loaded");
+    if (cfg.curve_n || cfg.pts_n) log_msg("pressure curve loaded (%d points)", cfg.pts_n ? cfg.pts_n : 8);
     if (cfg.in_ready) {
         log_msg("internal profile, stylus %s, eraser %s, deadzone %.2f-%.2f", stylus_word(cfg.in_stylus_action),
                 rubber_word(cfg.in_rubber_action),
@@ -3390,6 +3495,8 @@ static void fill_view(struct pen *pen, struct profile *view) {
     if (held && pen->latch_valid) {
         memcpy(view->curve, pen->latch_curve, sizeof view->curve);
         view->curve_n = pen->latch_curve_n;
+        memcpy(view->pts, pen->latch_pts, sizeof view->pts);
+        view->pts_n = pen->latch_pts_n;
         view->deadzone = pen->latch_deadzone;
         view->ceiling = pen->latch_ceiling;
         view->stylus_action = pen->latch_stylus_action;
@@ -3404,6 +3511,8 @@ static void fill_view(struct pen *pen, struct profile *view) {
     pen->latch_valid = 1;
     memcpy(pen->latch_curve, view->curve, sizeof pen->latch_curve);
     pen->latch_curve_n = view->curve_n;
+    memcpy(pen->latch_pts, view->pts, sizeof pen->latch_pts);
+    pen->latch_pts_n = view->pts_n;
     pen->latch_deadzone = view->deadzone;
     pen->latch_ceiling = view->ceiling;
     pen->latch_stylus_action = view->stylus_action;

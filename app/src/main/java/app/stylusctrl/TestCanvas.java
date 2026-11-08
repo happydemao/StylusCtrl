@@ -11,14 +11,23 @@ import android.view.View;
 
 import com.google.android.material.color.MaterialColors;
 
+import java.util.ArrayList;
+
 /** A drawing surface that is not inside a scrolling parent, so a stroke is not cancelled. */
 public class TestCanvas extends View {
     public interface SampleListener {
         void onSample(String text);
     }
 
+    /** One stroke's raw pressure, from down to up. Used by the pressure fit. */
+    public interface StrokeListener {
+        void onStroke(float[] pressures);
+    }
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private SampleListener listener;
+    private StrokeListener strokeListener;
+    private final ArrayList<Float> stroke = new ArrayList<>();
     private Bitmap ink;
     private Canvas inkCanvas;
     private float lastX;
@@ -37,6 +46,10 @@ public class TestCanvas extends View {
 
     public void setSampleListener(SampleListener listener) {
         this.listener = listener;
+    }
+
+    public void setStrokeListener(StrokeListener listener) {
+        this.strokeListener = listener;
     }
 
     public void clear() {
@@ -76,6 +89,8 @@ public class TestCanvas extends View {
             getParent().requestDisallowInterceptTouchEvent(true);
             if (android.os.Build.VERSION.SDK_INT >= 31) requestUnbufferedDispatch(event);
             drawing = true;
+            stroke.clear();
+            stroke.add(event.getPressure());
             lastX = event.getX();
             lastY = event.getY();
             report(event);
@@ -86,14 +101,20 @@ public class TestCanvas extends View {
             int history = event.getHistorySize();
             for (int i = 0; i < history; i++) {
                 addSegment(event.getHistoricalX(i), event.getHistoricalY(i), event.getHistoricalPressure(i));
+                stroke.add(event.getHistoricalPressure(i));
             }
             addSegment(event.getX(), event.getY(), event.getPressure());
+            stroke.add(event.getPressure());
             invalidate();
             report(event);
             return true;
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (action == MotionEvent.ACTION_UP) addSegment(event.getX(), event.getY(), event.getPressure());
+            if (action == MotionEvent.ACTION_UP) {
+                addSegment(event.getX(), event.getY(), event.getPressure());
+                stroke.add(event.getPressure());
+                finishStroke();
+            }
             drawing = false;
             getParent().requestDisallowInterceptTouchEvent(false);
             invalidate();
@@ -114,6 +135,14 @@ public class TestCanvas extends View {
         inkCanvas.drawLine(lastX, lastY, x, y, paint);
         lastX = x;
         lastY = y;
+    }
+
+    private void finishStroke() {
+        if (strokeListener == null || stroke.isEmpty()) return;
+        float[] values = new float[stroke.size()];
+        for (int i = 0; i < values.length; i++) values[i] = stroke.get(i);
+        strokeListener.onStroke(values);
+        stroke.clear();
     }
 
     @Override

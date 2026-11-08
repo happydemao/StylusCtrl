@@ -133,4 +133,24 @@
     <string name="side_secondary">Second side button</string>
     <string name="side_both">%1$s + %2$s</string>
     <string name="sample">Pressure %1$.3f    Tool %2$s    Button %3$s</string>
+
+    <string name="curve_add">New curve</string>
+    <string name="curve_rename">Rename</string>
+    <string name="curve_delete">Delete curve</string>
+    <string name="curve_add_point">Add point</string>
+    <string name="curve_remove_point">Remove point</string>
+    <string name="curve_fit">Adjust from strokes</string>
+    <string name="curve_points">%1$d / 12 points</string>
+    <string name="curve_new_name">Curve %1$d</string>
+    <string name="curve_last_one">Keep at least one curve.</string>
+    <string name="curve_full">Twelve points is the limit.</string>
+    <string name="curve_rename_title">Curve name</string>
+    <string name="curve_delete_confirm">Delete “%1$s”?</string>
+    <string name="fit_title">Adjust pressure from strokes</string>
+    <string name="fit_hint">Draw three to five strokes at different weights below. The curve spreads pressure across the range you really use; strength blends it into the current curve. The pen still writes here, so nothing is applied until you tap Apply.</string>
+    <string name="fit_strength">Strength</string>
+    <string name="fit_apply">Apply</string>
+    <string name="fit_short">Not enough stroke yet. Draw a little more.</string>
+    <string name="fit_samples">%1$d samples</string>
+    <string name="dialog_delete">Delete</string>
 </resources>

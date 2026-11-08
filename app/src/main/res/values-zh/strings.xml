@@ -124,4 +124,24 @@
     <string name="side_secondary">第二侧键</string>
     <string name="side_both">%1$s + %2$s</string>
     <string name="sample">压力 %1$.3f    工具 %2$s    侧键 %3$s</string>
+
+    <string name="curve_add">新建曲线</string>
+    <string name="curve_rename">改名</string>
+    <string name="curve_delete">删除曲线</string>
+    <string name="curve_add_point">加点</string>
+    <string name="curve_remove_point">减点</string>
+    <string name="curve_fit">按划线调整</string>
+    <string name="curve_points">%1$d / 12 点</string>
+    <string name="curve_new_name">曲线 %1$d</string>
+    <string name="curve_last_one">至少保留一条曲线。</string>
+    <string name="curve_full">最多十二个控制点。</string>
+    <string name="curve_rename_title">曲线名称</string>
+    <string name="curve_delete_confirm">删除「%1$s」？</string>
+    <string name="fit_title">按划线调整笔压</string>
+    <string name="fit_hint">在下面用不同力度画三到五条线。曲线会按你实际用到的压力范围重新分布，强度决定新旧曲线混合多少。这里画线不会影响别处，点「应用」才生效。</string>
+    <string name="fit_strength">强度</string>
+    <string name="fit_apply">应用</string>
+    <string name="fit_short">采样还太少，再画几笔。</string>
+    <string name="fit_samples">%1$d 个采样</string>
+    <string name="dialog_delete">删除</string>
 </resources>

@@ -22,7 +22,7 @@ if [ -z "$cc" ]; then
     echo "https://musl.cc/aarch64-linux-musl-cross.tgz under ~/.cache/stylusctrl/" >&2
     exit 1
 fi
-"$cc" -std=c11 -static -Os -Wall -Wextra -o "$root/out/stylusctld" "$root/tools/stylusctld.c"
+"$cc" -std=c11 -static -Os -Wall -Wextra -o "$root/out/stylusctld" "$root/tools/stylusctld.c" -lm
 echo "$root/out/stylusctld"
 
 cc32=""
@@ -38,5 +38,5 @@ if [ -z "$cc32" ]; then
     echo "https://musl.cc/armv7l-linux-musleabihf-cross.tgz under ~/.cache/stylusctrl/" >&2
     exit 1
 fi
-"$cc32" -std=c11 -static -Os -Wall -Wextra -o "$root/out/stylusctld32" "$root/tools/stylusctld.c"
+"$cc32" -std=c11 -static -Os -Wall -Wextra -o "$root/out/stylusctld32" "$root/tools/stylusctld.c" -lm
 echo "$root/out/stylusctld32"

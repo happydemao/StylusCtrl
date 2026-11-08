@@ -54,16 +54,46 @@ public class Profile {
     public final java.util.List<PresetStore.Item> parsedPresets = new java.util.ArrayList<>();
     public final java.util.List<PresetStore.Device> parsedDevices = new java.util.ArrayList<>();
 
-    /** Pressure curve and side buttons for one pen. Mapping is not part of this. */
+    /** The old cubic curve (0,0)(0.4,0.7)(0.4,0.7)(1,1) sampled at five knots. */
+    public static final float[] DEFAULT_CURVE =
+            new float[] {0f, 0f, 0.25f, 0.424f, 0.5f, 0.717f, 0.75f, 0.873f, 1f, 1f};
+
+    public static final int MAX_KNOTS = 12;
+
+    /** One named pressure curve. pts holds x,y pairs in 0..1, first x 0, last x 1. */
+    public static final class Curve {
+        public String name = "";
+        public float[] pts;
+
+        public Curve() {
+            this("", DEFAULT_CURVE.clone());
+        }
+
+        public Curve(String name, float[] pts) {
+            this.name = name == null ? "" : name;
+            this.pts = pts == null || pts.length < 4 ? DEFAULT_CURVE.clone() : pts.clone();
+        }
+
+        public Curve copy() {
+            return new Curve(name, pts);
+        }
+    }
+
+    /** Pressure curves and side buttons for one pen. Mapping is not part of this. */
     public static final class Feel {
         public double deadzone;
         public double ceiling = 1;
-        public double[] curve = new double[] {0, 0, 0.4, 0.7, 0.4, 0.7, 1, 1};
+        public final List<Curve> curves = new ArrayList<>();
+        public int active;
         public String stylusAction = "passthrough";
         public final List<String> stylusKeys = new ArrayList<>();
         public String rubberAction = "eraser";
         public final List<String> rubberKeys = new ArrayList<>();
         public boolean eraserWins = true;
+
+        public Feel() {
+            resetCurves();
+        }
 
         public static Feel tabletDefault() {
             Feel feel = new Feel();
@@ -73,10 +103,28 @@ public class Profile {
             return feel;
         }
 
+        public void resetCurves() {
+            curves.clear();
+            curves.add(new Curve("", DEFAULT_CURVE.clone()));
+            active = 0;
+        }
+
+        public Curve activeCurve() {
+            if (curves.isEmpty()) curves.add(new Curve("", DEFAULT_CURVE.clone()));
+            if (active < 0 || active >= curves.size()) active = 0;
+            return curves.get(active);
+        }
+
+        public float[] points() {
+            return activeCurve().pts;
+        }
+
         public void copyFrom(Feel other) {
             deadzone = other.deadzone;
             ceiling = other.ceiling;
-            curve = other.curve.clone();
+            curves.clear();
+            for (Curve c : other.curves) curves.add(c.copy());
+            active = other.active;
             stylusAction = other.stylusAction;
             stylusKeys.clear();
             stylusKeys.addAll(other.stylusKeys);
@@ -310,23 +358,82 @@ public class Profile {
         if (pressure == null) return false;
         feel.deadzone = pressure.optDouble("deadzone", 0);
         feel.ceiling = pressure.optDouble("ceiling", 1);
-        JSONArray curve = pressure.optJSONArray("curve");
-        if (curve != null && curve.length() >= 6) {
-            feel.curve = new double[8];
-            if (curve.length() >= 8) {
-                for (int i = 0; i < 8; i++) feel.curve[i] = curve.getDouble(i);
-            } else {
-                feel.curve[0] = curve.getDouble(0);
-                feel.curve[1] = curve.getDouble(1);
-                feel.curve[2] = curve.getDouble(2);
-                feel.curve[3] = curve.getDouble(3);
-                feel.curve[4] = curve.getDouble(2);
-                feel.curve[5] = curve.getDouble(3);
-                feel.curve[6] = curve.getDouble(4);
-                feel.curve[7] = curve.getDouble(5);
+        feel.curves.clear();
+        JSONArray bank = pressure.optJSONArray("curves");
+        if (bank != null) {
+            for (int i = 0; i < bank.length(); i++) {
+                JSONObject one = bank.optJSONObject(i);
+                if (one == null) continue;
+                float[] pts = readPoints(one.optJSONArray("points"));
+                if (pts != null) feel.curves.add(new Curve(one.optString("name", ""), pts));
             }
         }
+        if (feel.curves.isEmpty()) {
+            float[] pts = readPoints(pressure.optJSONArray("points"));
+            if (pts != null) feel.curves.add(new Curve("", pts));
+        }
+        if (feel.curves.isEmpty()) {
+            JSONArray curve = pressure.optJSONArray("curve");
+            if (curve != null && curve.length() >= 6) feel.curves.add(new Curve("", fromBezier(curve)));
+        }
+        if (feel.curves.isEmpty()) feel.curves.add(new Curve("", DEFAULT_CURVE.clone()));
+        int index = pressure.optInt("active", 0);
+        if (index < 0 || index >= feel.curves.size()) index = 0;
+        feel.active = index;
         return true;
+    }
+
+    /** Reads a flat x,y knot array. Rejects anything the daemon would also reject. */
+    static float[] readPoints(JSONArray arr) {
+        if (arr == null || arr.length() < 4 || arr.length() > MAX_KNOTS * 2 || (arr.length() % 2) != 0) return null;
+        float[] pts = new float[arr.length()];
+        for (int i = 0; i < arr.length(); i += 2) {
+            float x = (float) arr.optDouble(i, 0);
+            float y = (float) arr.optDouble(i + 1, 0);
+            if (i > 0 && x <= pts[i - 2]) return null;
+            pts[i] = Math.max(0f, Math.min(1f, x));
+            pts[i + 1] = Math.max(0f, Math.min(1f, y));
+        }
+        if (pts[0] != 0f || pts[pts.length - 2] != 1f) return null;
+        return pts;
+    }
+
+    /** Old configs keep a cubic Bezier in "curve". Sample it into knots instead of dropping it. */
+    static float[] fromBezier(JSONArray curve) {
+        double[] c = new double[8];
+        if (curve.length() >= 8) {
+            for (int i = 0; i < 8; i++) c[i] = curve.optDouble(i, 0);
+        } else {
+            c[0] = curve.optDouble(0, 0);
+            c[1] = curve.optDouble(1, 0);
+            c[2] = curve.optDouble(2, 0);
+            c[3] = curve.optDouble(3, 0);
+            c[4] = curve.optDouble(2, 0);
+            c[5] = curve.optDouble(3, 0);
+            c[6] = curve.optDouble(4, 0);
+            c[7] = curve.optDouble(5, 1);
+        }
+        float[] pts = new float[10];
+        float[] xs = new float[] {0f, 0.25f, 0.5f, 0.75f, 1f};
+        for (int i = 0; i < 5; i++) {
+            float x = xs[i];
+            double a = 0;
+            double b = 1;
+            for (int k = 0; k < 40; k++) {
+                double mid = (a + b) / 2;
+                double bx = bezierAt(mid, c[0], c[2], c[4], c[6]);
+                if (bx < x) a = mid;
+                else b = mid;
+            }
+            pts[i * 2] = x;
+            pts[i * 2 + 1] = (float) Math.max(0, Math.min(1, bezierAt((a + b) / 2, c[1], c[3], c[5], c[7])));
+        }
+        return pts;
+    }
+
+    static double bezierAt(double s, double p0, double p1, double p2, double p3) {
+        double t = 1 - s;
+        return t * t * t * p0 + 3 * t * t * s * p1 + 3 * t * s * s * p2 + s * s * s * p3;
     }
 
     private static boolean readFeelButtons(JSONObject buttons, JSONObject tools, Feel feel) throws Exception {
@@ -342,7 +449,9 @@ public class Profile {
     private static void copyPressure(Feel from, Feel to) {
         to.deadzone = from.deadzone;
         to.ceiling = from.ceiling;
-        to.curve = from.curve.clone();
+        to.curves.clear();
+        for (Curve c : from.curves) to.curves.add(c.copy());
+        to.active = from.active;
     }
 
     private static void copyButtons(Feel from, Feel to) {
@@ -493,17 +602,30 @@ public class Profile {
     }
 
     private static String pressureJson(Feel feel) {
+        Profile.Curve active = feel.activeCurve();
         StringBuilder b = new StringBuilder();
-        b.append("{ \"curve\": [");
-        for (int i = 0; i < 8; i++) {
+        b.append("{ \"deadzone\": ").append(String.format(Locale.US, "%.4f", feel.deadzone));
+        b.append(", \"ceiling\": ").append(String.format(Locale.US, "%.4f", feel.ceiling));
+        b.append(", \"active\": ").append(feel.active);
+        b.append(", \"points\": ").append(pointsJson(active.pts));
+        b.append(", \"curves\": [");
+        for (int i = 0; i < feel.curves.size(); i++) {
             if (i > 0) b.append(", ");
-            b.append(String.format(Locale.US, "%.4f", feel.curve[i]));
+            Profile.Curve c = feel.curves.get(i);
+            b.append("{ \"name\": \"").append(jsonString(c.name)).append("\", \"points\": ")
+                    .append(pointsJson(c.pts)).append(" }");
         }
-        b.append("], \"deadzone\": ");
-        b.append(String.format(Locale.US, "%.4f", feel.deadzone));
-        b.append(", \"ceiling\": ");
-        b.append(String.format(Locale.US, "%.4f", feel.ceiling));
-        b.append(" }");
+        b.append("] }");
+        return b.toString();
+    }
+
+    private static String pointsJson(float[] pts) {
+        StringBuilder b = new StringBuilder("[");
+        for (int i = 0; i < pts.length; i++) {
+            if (i > 0) b.append(", ");
+            b.append(String.format(Locale.US, "%.4f", pts[i]));
+        }
+        b.append("]");
         return b.toString();
     }
 
