@@ -138,7 +138,7 @@
     <string name="curve_rename_title">曲线名称</string>
     <string name="curve_delete_confirm">删除「%1$s」？</string>
     <string name="fit_title">按划线调整笔压</string>
-    <string name="fit_hint">在下面用不同力度画三到五条线。曲线会按你实际用到的压力范围重新分布，强度决定新旧曲线混合多少。这里画线不会影响别处，点「应用」才生效。</string>
+    <string name="fit_hint">在下面用不同力度画三到五条线。采样先按当前曲线反算回原始压力再拟合，连续调整不会一层层叠加偏差。曲线会按你实际用到的压力范围重新分布，强度决定新旧曲线混合多少。这里画线不会影响别处，点「应用」才生效。</string>
     <string name="fit_strength">强度</string>
     <string name="fit_apply">应用</string>
     <string name="fit_short">采样还太少，再画几笔。</string>

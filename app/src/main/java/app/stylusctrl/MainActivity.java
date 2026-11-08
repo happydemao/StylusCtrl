@@ -817,8 +817,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applyFit(List<Float> samples, float strength) {
+        Profile.Feel f = feel();
+        float[] cur = f.points().clone();
+        // The canvas reports pressure after the daemon applied the current curve.
+        // Undo that curve first, or the new knots would be fitted in the wrong domain
+        // and every fit would stack another bias on top of the last one.
+        float[] table = inverseTable(cur, INVERSE_STEPS);
         float[] sorted = new float[samples.size()];
-        for (int i = 0; i < sorted.length; i++) sorted[i] = samples.get(i);
+        for (int i = 0; i < sorted.length; i++) sorted[i] = invert(table, samples.get(i));
         Arrays.sort(sorted);
         float p10 = percentile(sorted, 0.10f);
         float p25 = percentile(sorted, 0.25f);
@@ -827,8 +833,6 @@ public class MainActivity extends AppCompatActivity {
         float p90 = percentile(sorted, 0.90f);
         float[] target = cleanKnots(new float[] {0f, 0f, p10, 0.06f, p25, 0.25f, p50, 0.5f,
                 p75, 0.75f, p90, 0.94f, 1f, 1f});
-        Profile.Feel f = feel();
-        float[] cur = f.points().clone();
         float[] xs = merge(cur, target);
         int count = Math.min(Profile.MAX_KNOTS, xs.length);
         float[] next = new float[count * 2];
@@ -844,6 +848,39 @@ public class MainActivity extends AppCompatActivity {
         f.activeCurve().pts = next;
         showCurve(f);
         writeConfig(false);
+    }
+
+    private static final int INVERSE_STEPS = 128;
+
+    /** Output pressure at each step of the curve domain, for undoing the current curve.
+        A curve that dips is flattened to its running maximum: the inverse has to be a
+        function, and a dip cannot be told apart from the earlier crossing. */
+    private static float[] inverseTable(float[] pts, int steps) {
+        int n = pts.length / 2;
+        float[] table = new float[steps + 1];
+        for (int i = 0; i <= steps; i++) table[i] = CurveGraph.eval(pts, n, i / (float) steps);
+        for (int i = 1; i <= steps; i++) {
+            if (table[i] < table[i - 1]) table[i] = table[i - 1];
+        }
+        return table;
+    }
+
+    /** Curve domain input that produces this output. Flat stretches resolve to their middle. */
+    private static float invert(float[] table, float y) {
+        int steps = table.length - 1;
+        if (y <= table[0]) return 0f;
+        if (y >= table[steps]) return 1f;
+        for (int i = 1; i <= steps; i++) {
+            if (table[i] < y) continue;
+            float a = table[i - 1];
+            float b = table[i];
+            float u0 = (i - 1) / (float) steps;
+            float u1 = i / (float) steps;
+            if (b - a <= 1e-5f) return (u0 + u1) / 2f;
+            float t = (y - a) / (b - a);
+            return u0 + (u1 - u0) * Math.max(0f, Math.min(1f, t));
+        }
+        return 1f;
     }
 
     private static float percentile(float[] sorted, float q) {

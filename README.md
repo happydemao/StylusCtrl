@@ -28,9 +28,12 @@ the pen does. Old `pressure.curve` cubics are sampled into five knots on load.
 
 Adjust from strokes is the CSP-style helper: draw a few strokes at different
 weights, and the sampled pressure percentiles (10/25/50/75/90) are spread over
-the output range. Strength blends the result with the current curve instead of
-replacing it. The fitted curve becomes normal knots, so it can be edited by hand
-afterwards.
+the output range. The canvas sees pressure after the daemon applied the current
+curve, so each sample is first run back through that curve (table inverse, dip
+folded to its running maximum) and fitted in the raw domain. Repeated fits then
+converge instead of stacking a bias per run. Strength blends the result with the
+current curve instead of replacing it. The fitted curve becomes normal knots, so
+it can be edited by hand afterwards.
 
 Note: `pressure.points` is read by the daemon in this release. A config that
 only has `points` needs the matching `stylusctrl-*.zip` module; the app alone
