@@ -153,4 +153,5 @@
     <string name="fit_short">Not enough stroke yet. Draw a little more.</string>
     <string name="fit_samples">%1$d samples</string>
     <string name="dialog_delete">Delete</string>
+    <string name="curve_bank_full">Up to eight curves.</string>
 </resources>

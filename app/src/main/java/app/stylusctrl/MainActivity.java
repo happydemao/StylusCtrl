@@ -710,9 +710,10 @@ public class MainActivity extends AppCompatActivity {
             chip.setCheckable(true);
             chip.setChecked(i == f.active);
             chip.setOnClickListener(v -> {
-                if (filling) return;
+                if (filling || f.active == index) return;
                 f.active = index;
                 showCurve(f);
+                writeConfig(false);
             });
             curveBank.addView(chip);
         }
@@ -720,11 +721,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void addCurve() {
         Profile.Feel f = feel();
+        if (f.curves.size() >= Profile.MAX_CURVES) {
+            Snackbar.make(root, R.string.curve_bank_full, Snackbar.LENGTH_SHORT).show();
+            return;
+        }
         Profile.Curve copy = f.activeCurve().copy();
         copy.name = getString(R.string.curve_new_name, f.curves.size() + 1);
         f.curves.add(copy);
         f.active = f.curves.size() - 1;
         showCurve(f);
+        writeConfig(false);
     }
 
     private void renameCurve() {
@@ -759,6 +765,7 @@ public class MainActivity extends AppCompatActivity {
                     f.curves.remove(f.active);
                     if (f.active >= f.curves.size()) f.active = f.curves.size() - 1;
                     showCurve(f);
+                    writeConfig(false);
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
@@ -836,6 +843,7 @@ public class MainActivity extends AppCompatActivity {
         next[next.length - 2] = 1f;
         f.activeCurve().pts = next;
         showCurve(f);
+        writeConfig(false);
     }
 
     private static float percentile(float[] sorted, float q) {
@@ -1097,7 +1105,7 @@ public class MainActivity extends AppCompatActivity {
             byte[] buf = new byte[4096];
             int n;
             while ((n = in.read(buf)) >= 0) {
-                if (out.size() + n > 65536) return null;
+                if (out.size() + n > 262144) return null;
                 out.write(buf, 0, n);
             }
             return out.toString(StandardCharsets.UTF_8);

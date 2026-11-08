@@ -144,4 +144,5 @@
     <string name="fit_short">采样还太少，再画几笔。</string>
     <string name="fit_samples">%1$d 个采样</string>
     <string name="dialog_delete">删除</string>
+    <string name="curve_bank_full">最多八条曲线。</string>
 </resources>

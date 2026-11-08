@@ -59,6 +59,8 @@ public class Profile {
             new float[] {0f, 0f, 0.25f, 0.424f, 0.5f, 0.717f, 0.75f, 0.873f, 1f, 1f};
 
     public static final int MAX_KNOTS = 12;
+    /** Keeps config.json small enough for one su argument, and matches the preset cap. */
+    public static final int MAX_CURVES = 8;
 
     /** One named pressure curve. pts holds x,y pairs in 0..1, first x 0, last x 1. */
     public static final class Curve {
@@ -361,7 +363,7 @@ public class Profile {
         feel.curves.clear();
         JSONArray bank = pressure.optJSONArray("curves");
         if (bank != null) {
-            for (int i = 0; i < bank.length(); i++) {
+            for (int i = 0; i < bank.length() && feel.curves.size() < MAX_CURVES; i++) {
                 JSONObject one = bank.optJSONObject(i);
                 if (one == null) continue;
                 float[] pts = readPoints(one.optJSONArray("points"));

@@ -3022,14 +3022,16 @@ static char *read_file(const char *path, int *missing) {
         if (errno == ENOENT) *missing = 1;
         return NULL;
     }
-    char *buf = malloc(65536);
+    /* Bumped when the curve bank moved into config.json: eight presets with a
+       dozen named curves each no longer fit in 64 KiB. */
+    char *buf = malloc(262144);
     if (!buf) {
         close(fd);
         return NULL;
     }
     int n = 0;
-    while (n < 65535) {
-        ssize_t got = read(fd, buf + n, (size_t)(65535 - n));
+    while (n < 262143) {
+        ssize_t got = read(fd, buf + n, (size_t)(262143 - n));
         if (got < 0) {
             if (errno == EINTR) continue;
             free(buf);
