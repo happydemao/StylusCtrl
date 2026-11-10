@@ -151,4 +151,21 @@
     <string name="curve_undone">已撤销。</string>
     <string name="fit_status">%1$d 笔 · %2$d 点</string>
     <string name="ok">确定</string>
+
+    <string name="curve_emulate">笔压模拟</string>
+    <string name="emu_title">笔压模拟</string>
+    <string name="emu_hint">让当前笔模拟另一支笔的压感。先换上参考笔，用不同力度画 3 到 5 笔；再换回当前笔，用同样的力度画同样的线。程序按相同的压力分位点，把当前笔的原始压力映射成参考笔的响应，生成一条新曲线。重压可能超出笔的量程而测不到，曲线顶端会按外推处理。</string>
+    <string name="emu_reference">参考笔</string>
+    <string name="emu_reference_hint">换上参考笔，从轻到重画 3 到 5 笔。</string>
+    <string name="emu_target">当前笔</string>
+    <string name="emu_target_hint">换回当前笔，用同样的力度画同样的线。</string>
+    <string name="emu_clear">清空</string>
+    <string name="emu_strength">强度</string>
+    <string name="emu_name">曲线名称</string>
+    <string name="emu_default_name">模拟 %1$d</string>
+    <string name="emu_need">两边都至少画 3 笔、24 个采样点。</string>
+    <string name="emu_warn_ref_sat">参考笔有 %1$d%% 的采样顶到量程上限，重压段为外推。</string>
+    <string name="emu_warn_tgt_sat">当前笔有 %1$d%% 的采样顶到量程上限。</string>
+    <string name="emu_warn_extrap">重压段没有实测，曲线顶端为外推结果。</string>
+    <string name="emu_saved">已保存为新曲线。</string>
 </resources>

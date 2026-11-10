@@ -151,4 +151,21 @@
     <string name="curve_undone">Undone.</string>
     <string name="fit_status">%1$d strokes · %2$d samples</string>
     <string name="ok">OK</string>
+
+    <string name="curve_emulate">Pen emulation</string>
+    <string name="emu_title">Pen pressure emulation</string>
+    <string name="emu_hint">Make the current pen follow another pen\'s pressure response. Swap in the reference pen and draw 3-5 strokes at different weights, then swap back to your pen and draw the same strokes with the same effort. The app maps the current pen\'s raw pressure onto the reference response at matching percentiles and builds a new curve. Heavy presses can exceed what a pen can report, so the top of the curve is extrapolated.</string>
+    <string name="emu_reference">Reference pen</string>
+    <string name="emu_reference_hint">Swap in the reference pen; draw 3-5 strokes, light to heavy.</string>
+    <string name="emu_target">Current pen</string>
+    <string name="emu_target_hint">Swap back to your pen; draw the same strokes with the same effort.</string>
+    <string name="emu_clear">Clear</string>
+    <string name="emu_strength">Strength</string>
+    <string name="emu_name">Curve name</string>
+    <string name="emu_default_name">Emulated %1$d</string>
+    <string name="emu_need">Draw at least 3 strokes with 24 samples on each side.</string>
+    <string name="emu_warn_ref_sat">%1$d%% of reference samples hit the pen ceiling; the heavy end is extrapolated.</string>
+    <string name="emu_warn_tgt_sat">%1$d%% of current-pen samples hit the ceiling.</string>
+    <string name="emu_warn_extrap">The heavy end was not measured; the top of the curve is extrapolated.</string>
+    <string name="emu_saved">Saved as a new curve.</string>
 </resources>

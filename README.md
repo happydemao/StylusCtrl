@@ -18,6 +18,25 @@ StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on And
   <img src="https://i.imgur.com/bbTihJi.png" alt="Shortcuts" width="32%">
 </div>
 
+## New in 0.7.0
+
+- **Pen pressure emulation.** Pressure page → **Pen emulation**: sample a
+  reference pen (3-5 strokes at different weights), swap back to the pen you
+  draw with, draw the same strokes, then apply. The app matches the
+  5/10/25/50/75/90/95% pressure quantiles of the two pens and builds a new curve
+  from the current pen's raw input to the reference pen's output, so the current
+  pen reproduces the reference feel. The result is saved as a new named curve;
+  strength blends it with the current curve and the dialog shows a live dashed
+  preview.
+- **Heavy pressure beyond the pen's range** is handled explicitly: samples at
+  the ceiling are detected and reported in the dialog, the top of the curve is
+  extrapolated to full output, and the UI warns when the heavy end was not
+  actually measured.
+- Per-stroke quantiles are averaged, so one long stroke cannot dominate a
+  short one. The reference data is the effective output of the current curve;
+  the current pen's data is inverted back to raw pressure first, so the curve
+  is not applied twice.
+
 ## New in 0.6.3
 
 - **Language.** English stays the default in `values/`; Chinese lives in

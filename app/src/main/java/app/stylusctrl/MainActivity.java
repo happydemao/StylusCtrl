@@ -283,6 +283,7 @@ public class MainActivity extends AppCompatActivity {
         pressurePage.findViewById(R.id.curve_rename).setOnClickListener(v -> renameCurve());
         pressurePage.findViewById(R.id.curve_delete).setOnClickListener(v -> deleteCurve());
         pressurePage.findViewById(R.id.curve_fit).setOnClickListener(v -> showFitDialog());
+        pressurePage.findViewById(R.id.curve_emulate).setOnClickListener(v -> showEmulationDialog());
         wireButtons();
         wireDeviceChoice();
         wireInternal();
@@ -960,7 +961,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Mixes two knot sets on the union of their x positions, capped at MAX_KNOTS. */
-    private static float[] blend(float[] cur, float[] target, float strength) {
+    static float[] blend(float[] cur, float[] target, float strength) {
         float[] xs = merge(cur, target);
         int count = Math.min(Profile.MAX_KNOTS, xs.length);
         float[] next = new float[count * 2];
@@ -976,12 +977,146 @@ public class MainActivity extends AppCompatActivity {
         return next;
     }
 
-    private static final int INVERSE_STEPS = 128;
+    /**
+     * Pen pressure emulation: sample a reference pen and the current pen, then build a
+     * new curve that maps the current pen's raw pressure to the reference response.
+     */
+    private void showEmulationDialog() {
+        View view = getLayoutInflater().inflate(R.layout.dialog_pen_emulation, null);
+        TestCanvas refCanvas = view.findViewById(R.id.emu_ref_canvas);
+        TestCanvas tgtCanvas = view.findViewById(R.id.emu_tgt_canvas);
+        TextView refStatus = view.findViewById(R.id.emu_ref_status);
+        TextView tgtStatus = view.findViewById(R.id.emu_tgt_status);
+        TextView warn = view.findViewById(R.id.emu_warn);
+        CurveGraph preview = view.findViewById(R.id.emu_preview);
+        SeekBar bar = view.findViewById(R.id.emu_strength_bar);
+        TextView value = view.findViewById(R.id.emu_strength_value);
+        EditText name = view.findViewById(R.id.emu_name);
+
+        Profile.Feel f = feel();
+        final float[] cur = f.points().clone();
+        preview.setPoints(absolute(f, cur));
+        final List<float[]> refStrokes = new ArrayList<>();
+        final List<float[]> tgtStrokes = new ArrayList<>();
+        final int[] refCount = {0};
+        final int[] tgtCount = {0};
+        name.setText(getString(R.string.emu_default_name, f.curves.size() + 1));
+
+        final Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            float strength = bar.getProgress() / 100f;
+            value.setText(bar.getProgress() + "%");
+            refStatus.setText(getString(R.string.fit_status, refStrokes.size(), refCount[0]));
+            tgtStatus.setText(getString(R.string.fit_status, tgtStrokes.size(), tgtCount[0]));
+            if (refStrokes.isEmpty() || tgtStrokes.isEmpty()) {
+                preview.setPreview(null);
+                warn.setVisibility(View.GONE);
+                return;
+            }
+            PenEmulation.Result result = PenEmulation.build(cur, refStrokes, tgtStrokes, strength);
+            preview.setPreview(result.ok ? absolute(feel(), result.knots) : null);
+            String text = emulationWarnings(result);
+            warn.setText(text);
+            warn.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        };
+
+        refCanvas.setPenOnly(true);
+        refCanvas.setStrokeListener(pressures -> {
+            if (pressures.length < 6) return;
+            refStrokes.add(pressures);
+            refCount[0] += pressures.length;
+            refresh[0].run();
+        });
+        tgtCanvas.setPenOnly(true);
+        tgtCanvas.setStrokeListener(pressures -> {
+            if (pressures.length < 6) return;
+            tgtStrokes.add(pressures);
+            tgtCount[0] += pressures.length;
+            refresh[0].run();
+        });
+        view.findViewById(R.id.emu_ref_clear).setOnClickListener(v -> {
+            refCanvas.clear();
+            refStrokes.clear();
+            refCount[0] = 0;
+            refresh[0].run();
+        });
+        view.findViewById(R.id.emu_tgt_clear).setOnClickListener(v -> {
+            tgtCanvas.clear();
+            tgtStrokes.clear();
+            tgtCount[0] = 0;
+            refresh[0].run();
+        });
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) refresh[0].run();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
+        });
+        refresh[0].run();
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.emu_title)
+                .setView(view)
+                .setPositiveButton(R.string.fit_apply, null)
+                .setNegativeButton(R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (refStrokes.size() < 3 || tgtStrokes.size() < 3 || refCount[0] < 24 || tgtCount[0] < 24) {
+                Toast.makeText(this, R.string.emu_need, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Profile.Feel now = feel();
+            if (now.curves.size() >= Profile.MAX_CURVES) {
+                Toast.makeText(this, R.string.curve_bank_full, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            PenEmulation.Result result = PenEmulation.build(cur, refStrokes, tgtStrokes, bar.getProgress() / 100f);
+            if (!result.ok) {
+                Toast.makeText(this, R.string.emu_need, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String label = name.getText().toString().trim();
+            if (label.isEmpty()) label = getString(R.string.emu_default_name, now.curves.size() + 1);
+            now.curves.add(new Profile.Curve(label, result.knots));
+            now.active = now.curves.size() - 1;
+            showCurve(now);
+            writeConfig(false);
+            Toast.makeText(this, R.string.emu_saved, Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        }));
+        dialog.show();
+    }
+
+    private String emulationWarnings(PenEmulation.Result result) {
+        StringBuilder b = new StringBuilder();
+        if (result.refSaturation > 0.05f) {
+            b.append(getString(R.string.emu_warn_ref_sat, Math.round(result.refSaturation * 100f)));
+        }
+        if (result.targetSaturation > 0.05f) {
+            if (b.length() > 0) b.append('\n');
+            b.append(getString(R.string.emu_warn_tgt_sat, Math.round(result.targetSaturation * 100f)));
+        }
+        if (result.topExtrapolated) {
+            if (b.length() > 0) b.append('\n');
+            b.append(getString(R.string.emu_warn_extrap));
+        }
+        return b.toString();
+    }
+
+    static final int INVERSE_STEPS = 128;
 
     /** Output pressure at each step of the curve domain, for undoing the current curve.
         A curve that dips is flattened to its running maximum: the inverse has to be a
         function, and a dip cannot be told apart from the earlier crossing. */
-    private static float[] inverseTable(float[] pts, int steps) {
+    static float[] inverseTable(float[] pts, int steps) {
         int n = pts.length / 2;
         float[] table = new float[steps + 1];
         for (int i = 0; i <= steps; i++) table[i] = CurveGraph.eval(pts, n, i / (float) steps);
@@ -992,7 +1127,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Curve domain input that produces this output. Flat stretches resolve to their middle. */
-    private static float invert(float[] table, float y) {
+    static float invert(float[] table, float y) {
         int steps = table.length - 1;
         if (y <= table[0]) return 0f;
         if (y >= table[steps]) return 1f;
@@ -1009,7 +1144,7 @@ public class MainActivity extends AppCompatActivity {
         return 1f;
     }
 
-    private static float percentile(float[] sorted, float q) {
+    static float percentile(float[] sorted, float q) {
         if (sorted.length == 0) return 0f;
         float pos = q * (sorted.length - 1);
         int lo = (int) Math.floor(pos);
@@ -1019,7 +1154,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** Keeps the fitted knots ordered, at least 2 apart, with fixed endpoints. */
-    private static float[] cleanKnots(float[] raw) {
+    static float[] cleanKnots(float[] raw) {
         int n = raw.length / 2;
         float[] tmp = new float[raw.length];
         int m = 0;
@@ -1043,7 +1178,7 @@ public class MainActivity extends AppCompatActivity {
         return out;
     }
 
-    private static float[] merge(float[] a, float[] b) {
+    static float[] merge(float[] a, float[] b) {
         ArrayList<Float> all = new ArrayList<>();
         for (int i = 0; i < a.length; i += 2) all.add(a[i]);
         for (int i = 0; i < b.length; i += 2) all.add(b[i]);
