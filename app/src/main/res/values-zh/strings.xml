@@ -168,4 +168,23 @@
     <string name="emu_warn_tgt_sat">当前笔有 %1$d%% 的采样顶到量程上限。</string>
     <string name="emu_warn_extrap">重压段没有实测，曲线顶端为外推结果。</string>
     <string name="emu_saved">已保存为新曲线。</string>
+
+    <string name="curve_perceptual">主观比较校准</string>
+    <string name="perc_title">主观比较校准（实验）</string>
+    <string name="perc_intro">让两支笔在同一输出档位上比较，你只需要回答哪一次更费力。程序用逐步缩小的步长移动当前笔的曲线，直到两次手感接近；五个档位交替进行，避免疲劳只影响其中一档。每次比较需要各画一笔。</string>
+    <string name="perc_step">第 %1$d / %2$d 次比较 · 目标输出 %3$d%%</string>
+    <string name="perc_draw_first">先用%1$s：画一条线，尽量让输出停在 %2$d%%。</string>
+    <string name="perc_draw_second">现在换%1$s：同样保持这个输出、同样的力度。</string>
+    <string name="perc_ask">哪一次需要更大的按压力？</string>
+    <string name="perc_ref_harder">参考笔更费力</string>
+    <string name="perc_tgt_harder">当前笔更费力</string>
+    <string name="perc_similar">差不多</string>
+    <string name="perc_applying">正在应用测试曲线…</string>
+    <string name="perc_retry">尽量保持在 %1$d%% 附近，再画一次。</string>
+    <string name="perc_note">已完成 %1$d / %2$d 次比较 · 步长 %3$d%%</string>
+    <string name="perc_zero">0%</string>
+    <string name="perc_finish">完成</string>
+    <string name="perc_need">先完成至少 3 次比较。</string>
+    <string name="perc_curve_name">主观校准 %1$d</string>
+    <string name="perc_saved">已保存为新曲线。</string>
 </resources>

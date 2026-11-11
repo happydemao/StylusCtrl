@@ -18,6 +18,21 @@ StylusCtrl maps a drawing tablet's area, pressure curve, and side buttons on And
   <img src="https://i.imgur.com/bbTihJi.png" alt="Shortcuts" width="32%">
 </div>
 
+## New in 0.8.0
+
+- **Perceptual matching (experimental).** Pressure page → **Perceptual
+  calibration**: instead of reproducing a force, you compare the two pens at
+  the same output level and answer which one needed more pressure. A shrinking
+  staircase moves the current pen's curve at that level; the five levels
+  (15/35/55/75/90%) are interleaved, and the candidate curve is written to the
+  daemon between trials so each comparison really uses the new curve. "About
+  the same" counts as reaching the point of subjective equality and stops the
+  level early. The final anchors are made monotone and saved as a new curve.
+- The staircase is bounded: without a direction reversal the shift is capped at
+  20%, so two pens with a uniform difficulty difference cannot run the curve
+  into the corner. The comparison is subjective by design — it approximates the
+  user's felt effort, not a Newton-level force conversion.
+
 ## New in 0.7.0
 
 - **Pen pressure emulation.** Pressure page → **Pen emulation**: sample a

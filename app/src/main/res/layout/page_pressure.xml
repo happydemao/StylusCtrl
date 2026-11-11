@@ -147,6 +147,16 @@
                 android:minWidth="0dp"
                 android:text="@string/curve_emulate"
                 android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/curve_perceptual"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:minWidth="0dp"
+                android:text="@string/curve_perceptual"
+                android:textSize="12sp" />
         </LinearLayout>
     </HorizontalScrollView>
 

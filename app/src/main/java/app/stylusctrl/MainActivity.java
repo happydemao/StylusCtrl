@@ -27,6 +27,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -65,6 +66,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -284,6 +286,7 @@ public class MainActivity extends AppCompatActivity {
         pressurePage.findViewById(R.id.curve_delete).setOnClickListener(v -> deleteCurve());
         pressurePage.findViewById(R.id.curve_fit).setOnClickListener(v -> showFitDialog());
         pressurePage.findViewById(R.id.curve_emulate).setOnClickListener(v -> showEmulationDialog());
+        pressurePage.findViewById(R.id.curve_perceptual).setOnClickListener(v -> new PerceptualSession().start());
         wireButtons();
         wireDeviceChoice();
         wireInternal();
@@ -975,6 +978,217 @@ public class MainActivity extends AppCompatActivity {
         next[0] = 0f;
         next[next.length - 2] = 1f;
         return next;
+    }
+
+    /**
+     * Perceptual matching session: alternates the two pens at one output level, asks a
+     * single comparison question, and moves the current pen's curve with a staircase.
+     * The candidate curve is written to the daemon between trials, because the test is
+     * only meaningful if the pen actually feels different after each step.
+     */
+    private final class PerceptualSession {
+        private final AlertDialog dialog;
+        private final TextView stepText;
+        private final TextView promptText;
+        private final TextView valueText;
+        private final TextView noteText;
+        private final ProgressBar meter;
+        private final TestCanvas canvas;
+        private final View judgeRow;
+        private final float[] original;
+        private final int originalIndex;
+        private final List<PerceptualCalibration.Level> levels;
+        private final int totalTrials;
+        private final Random random = new Random();
+
+        private int round;
+        private int index;
+        private int stage;
+        private int judged;
+        private boolean refFirst;
+        private boolean closed;
+        private boolean applied;
+
+        PerceptualSession() {
+            View view = getLayoutInflater().inflate(R.layout.dialog_perceptual, null);
+            stepText = view.findViewById(R.id.perc_step);
+            promptText = view.findViewById(R.id.perc_prompt);
+            valueText = view.findViewById(R.id.perc_value);
+            noteText = view.findViewById(R.id.perc_note);
+            meter = view.findViewById(R.id.perc_meter);
+            canvas = view.findViewById(R.id.perc_canvas);
+            judgeRow = view.findViewById(R.id.perc_judge);
+
+            Profile.Feel f = feel();
+            original = f.points().clone();
+            originalIndex = f.active;
+            levels = PerceptualCalibration.levels(original);
+            totalTrials = levels.size() * PerceptualCalibration.TRIALS_PER_LEVEL;
+
+            canvas.setPenOnly(true);
+            canvas.setStrokeListener(this::onStroke);
+            canvas.setLiveListener(pressure -> {
+                float p = Math.max(0f, Math.min(1f, pressure));
+                meter.setProgress((int) (p * 1000f));
+                valueText.setText(Math.round(p * 100f) + "%");
+            });
+
+            view.findViewById(R.id.perc_ref_harder)
+                    .setOnClickListener(v -> judge(PerceptualCalibration.Judgment.REFERENCE_HARDER));
+            view.findViewById(R.id.perc_tgt_harder)
+                    .setOnClickListener(v -> judge(PerceptualCalibration.Judgment.TARGET_HARDER));
+            view.findViewById(R.id.perc_similar)
+                    .setOnClickListener(v -> judge(PerceptualCalibration.Judgment.SIMILAR));
+
+            dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle(R.string.perc_title)
+                    .setView(view)
+                    .setPositiveButton(R.string.perc_finish, null)
+                    .setNegativeButton(R.string.cancel, null)
+                    .create();
+        }
+
+        void start() {
+            dialog.setOnShowListener(d -> {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                    if (judged < 3) {
+                        Toast.makeText(MainActivity.this, R.string.perc_need, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    finishCurve();
+                });
+                dialog.setOnDismissListener(d2 -> {
+                    closed = true;
+                    if (!applied) restore();
+                });
+            });
+            dialog.show();
+            nextTrial();
+        }
+
+        private void nextTrial() {
+            if (closed) return;
+            while (round < PerceptualCalibration.TRIALS_PER_LEVEL) {
+                if (index >= levels.size()) {
+                    index = 0;
+                    round++;
+                    continue;
+                }
+                if (!levels.get(index).done()) break;
+                index++;
+            }
+            if (round >= PerceptualCalibration.TRIALS_PER_LEVEL) {
+                finishCurve();
+                return;
+            }
+            stage = 0;
+            refFirst = random.nextBoolean();
+            showStage();
+        }
+
+        private void showStage() {
+            PerceptualCalibration.Level level = levels.get(index);
+            stepText.setText(getString(R.string.perc_step, Math.min(judged + 1, totalTrials), totalTrials,
+                    Math.round(level.output * 100f)));
+            noteText.setText(getString(R.string.perc_note, judged, totalTrials, Math.round(level.step * 100f)));
+            if (stage >= 2) {
+                judgeRow.setVisibility(View.VISIBLE);
+                canvas.setVisibility(View.GONE);
+                promptText.setText(R.string.perc_ask);
+                return;
+            }
+            judgeRow.setVisibility(View.GONE);
+            canvas.setVisibility(View.VISIBLE);
+            meter.setProgress(0);
+            valueText.setText(R.string.perc_zero);
+            String pen = stage == 0
+                    ? (refFirst ? getString(R.string.emu_reference) : getString(R.string.emu_target))
+                    : (refFirst ? getString(R.string.emu_target) : getString(R.string.emu_reference));
+            int percent = Math.round(level.output * 100f);
+            promptText.setText(stage == 0
+                    ? getString(R.string.perc_draw_first, pen, percent)
+                    : getString(R.string.perc_draw_second, pen));
+        }
+
+        private void onStroke(float[] pressures) {
+            if (stage >= 2 || pressures.length < 6) return;
+            float sum = 0f;
+            for (float p : pressures) sum += p;
+            float average = sum / pressures.length;
+            PerceptualCalibration.Level level = levels.get(index);
+            if (Math.abs(average - level.output) > 0.15f) {
+                Toast.makeText(MainActivity.this,
+                        getString(R.string.perc_retry, Math.round(level.output * 100f)),
+                        Toast.LENGTH_SHORT).show();
+                meter.setProgress(0);
+                valueText.setText(R.string.perc_zero);
+                return;
+            }
+            stage++;
+            showStage();
+        }
+
+        private void judge(PerceptualCalibration.Judgment judgment) {
+            if (stage != 2 || closed) return;
+            levels.get(index).update(judgment);
+            judged++;
+            index++;
+            applyAndContinue();
+        }
+
+        private void applyAndContinue() {
+            Profile.Feel f = feel();
+            f.activeCurve().pts = PerceptualCalibration.curve(levels, original);
+            writeConfig(false);
+            stage = 3;
+            judgeRow.setVisibility(View.GONE);
+            canvas.setVisibility(View.GONE);
+            promptText.setText(R.string.perc_applying);
+            noteText.setText(getString(R.string.perc_note, judged, totalTrials,
+                    Math.round(levels.get(Math.min(index, levels.size() - 1)).step * 100f)));
+            io.execute(() -> {
+                try {
+                    Thread.sleep(1500);
+                } catch (InterruptedException ignored) {
+                }
+                runOnUiThread(() -> {
+                    if (!closed) nextTrial();
+                });
+            });
+        }
+
+        private void finishCurve() {
+            if (applied) return;
+            applied = true;
+            closed = true;
+            Profile.Feel f = feel();
+            f.curves.get(originalIndex).pts = original.clone();
+            float[] knots = PerceptualCalibration.curve(levels, original);
+            if (f.curves.size() < Profile.MAX_CURVES) {
+                String name = getString(R.string.perc_curve_name, f.curves.size() + 1);
+                f.curves.add(new Profile.Curve(name, knots));
+                f.active = f.curves.size() - 1;
+                showCurve(f);
+                writeConfig(false);
+                Toast.makeText(MainActivity.this, R.string.perc_saved, Toast.LENGTH_SHORT).show();
+            } else {
+                f.active = originalIndex;
+                showCurve(f);
+                writeConfig(false);
+                Toast.makeText(MainActivity.this, R.string.curve_bank_full, Toast.LENGTH_SHORT).show();
+            }
+            dialog.dismiss();
+        }
+
+        private void restore() {
+            Profile.Feel f = feel();
+            if (originalIndex < f.curves.size()) {
+                f.curves.get(originalIndex).pts = original.clone();
+                f.active = originalIndex;
+                showCurve(f);
+                writeConfig(false);
+            }
+        }
     }
 
     /**

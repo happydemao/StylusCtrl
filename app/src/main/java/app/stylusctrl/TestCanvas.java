@@ -24,9 +24,15 @@ public class TestCanvas extends View {
         void onStroke(float[] pressures);
     }
 
+    /** Live pressure while drawing, for the target meter in perceptual calibration. */
+    public interface LiveListener {
+        void onPressure(float pressure);
+    }
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private SampleListener listener;
     private StrokeListener strokeListener;
+    private LiveListener liveListener;
     private final ArrayList<Float> stroke = new ArrayList<>();
     private static final int MAX_SAMPLES = 500;
     private boolean penOnly;
@@ -52,6 +58,10 @@ public class TestCanvas extends View {
 
     public void setStrokeListener(StrokeListener listener) {
         this.strokeListener = listener;
+    }
+
+    public void setLiveListener(LiveListener listener) {
+        this.liveListener = listener;
     }
 
     /** The fit dialog wants stylus strokes only: a finger has no pressure range to learn. */
@@ -171,6 +181,7 @@ public class TestCanvas extends View {
     }
 
     private void report(MotionEvent event) {
+        if (liveListener != null) liveListener.onPressure(event.getPressure());
         if (listener == null) return;
         listener.onSample(describe(event));
     }

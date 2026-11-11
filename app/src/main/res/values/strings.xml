@@ -168,4 +168,23 @@
     <string name="emu_warn_tgt_sat">%1$d%% of current-pen samples hit the ceiling.</string>
     <string name="emu_warn_extrap">The heavy end was not measured; the top of the curve is extrapolated.</string>
     <string name="emu_saved">Saved as a new curve.</string>
+
+    <string name="curve_perceptual">Perceptual calibration</string>
+    <string name="perc_title">Perceptual calibration (experimental)</string>
+    <string name="perc_intro">Compare the two pens at the same output level and answer which one needed more pressure. The app moves the current pen\'s curve with a shrinking step until the two feel equal; the five levels are interleaved so fatigue does not bias one of them. Every comparison needs two short strokes.</string>
+    <string name="perc_step">Comparison %1$d / %2$d · target output %3$d%%</string>
+    <string name="perc_draw_first">%1$s first: draw a line and keep the output near %2$d%%.</string>
+    <string name="perc_draw_second">Now the %1$s: same output, same effort.</string>
+    <string name="perc_ask">Which one needed more pressure?</string>
+    <string name="perc_ref_harder">Reference pen</string>
+    <string name="perc_tgt_harder">Current pen</string>
+    <string name="perc_similar">About the same</string>
+    <string name="perc_applying">Applying the test curve…</string>
+    <string name="perc_retry">Keep the output near %1$d%% and draw again.</string>
+    <string name="perc_note">%1$d of %2$d comparisons done · step %3$d%%</string>
+    <string name="perc_zero">0%</string>
+    <string name="perc_finish">Finish</string>
+    <string name="perc_need">Finish at least 3 comparisons first.</string>
+    <string name="perc_curve_name">Perceptual %1$d</string>
+    <string name="perc_saved">Saved as a new curve.</string>
 </resources>
